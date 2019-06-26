@@ -30,6 +30,10 @@ def sympy_eqn(c, interactions=None, include_bias=True):
     include_bias : bool
         Whether or not to include a bias term (intercept) in the fit.
     """
+    if isinstance(c, pd.core.series.Series):
+        interactions = c.loc['interactions'].values
+        include_bias = c.loc[('model', 'include_bias')]
+        c = c.loc['orders'].values
     c = np.asanyarray(c)
 
     interaction_pairs = np.vstack(np.triu_indices(len(c), 1)).T
