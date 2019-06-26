@@ -7,16 +7,18 @@ from sklearn.linear_model import LinearRegression
 
 from .bayesfactor import BayesFactor0
 
-def calc_permutations(ncov, poly_max=1):
+# TODO: Multi-threading
+
+def calc_permutations(n, i_max=1):
     """
-    Returns all combinations and permutations of covariate orders.
+    Returns all combinations and permutations of n elements with values up to i_max.
     
     Parameters
     ----------
-    ncov : int
-        The number of covariates in the model.
-    poly_max : int
-        The maximum order of polynomial term to include.
+    n : int
+        The number of items in the permutations.
+    i_max : int
+        The maximum value in the polynomial
         
     Returns
     -------
@@ -24,25 +26,18 @@ def calc_permutations(ncov, poly_max=1):
         covariates orders.
     """
     combs = set()
-    for c in combinations_with_replacement(range(poly_max+1), ncov):
+    for c in combinations_with_replacement(range(i_max+1), n):
         combs.update(permutations(c))
         
     return np.asanyarray(list(combs))
 
 
-def build_desmat(c, X, interaction_order=0, include_bias=True):
+def build_desmat(c, X, interactions=None, include_bias=True):
     """
     Build a design matrix from X for the polynomial specified by c.
     
-    The contents of the columns of the design matrix varies depending
-    on interaction_order. For example, consider X with three columns
-    [x, y, z]. For c=[1,2,3] the resulting design matrix could take the 
-    following forms:
-    interaction_order=0, [1., x, y, z, y**2, z**2, z**3]
-    interaction_order=1, [1., x, y, z, x*y, x*z, y*z, y**2, z**2, z**3]
-    interaction_order=2, [1., x, y, z, x*y, x*z, y*z, y**2, z**2, y**2 * z**2, z**3]    
-    Increasing interaction_order will have no effect unless there is one
-    or more covariates with that order or higher - i.e. sum(c >= interaction_order) >= 2
+    The order of the columns returns are:
+    [constant, {x_i, ... x_n}**order, {first order interactions}, {second order interactions}]
     
     Parameters
     ----------
@@ -51,25 +46,44 @@ def build_desmat(c, X, interaction_order=0, include_bias=True):
         of each covariate.
     X : array-like
         An array of covariates of shape (M, N).
-    interaction_order : int
-        The maximum polynomial order of interaction terms to include. 
-        Default is zero (no interaction).
+    interactions : None or array-like
+        If None, no parameter interactions are included.
+        If not None, it should be an array of integers the same length as the number
+        of combinations of parameters in c, i.e. if c=[1,1,1]: interactions=[1, 1, 1, 1, 1, 1],
+        where each integer correspons to the order of the interaction between covariates
+        [01, 02, 03, 12, 13, 23].
     include_bias : bool
         Whether or not to inclue a bias (i.e. intercept) in the design matrix.
     """
     c = np.asanyarray(c)
     X = np.asanyarray(X)
+
+    interaction_pairs = np.vstack(np.triu_indices(len(c), 1)).T
+    if interactions is not None:
+        interactions = np.asanyarray(interactions)
+        if interaction_pairs.shape[0] != interactions.size:
+            msg = '\nIncorrect number of interactions specified. Should be {} for {} covariates.'.format(interaction_pairs.shape[0], c.size)
+            msg += '\nSpecifying the orders of interactions between: [' + ', '.join(['{}{}'.format(*i) for i in interaction_pairs]) + ']'
+            raise ValueError(msg)
+        if interactions.max() > c.max():
+            print('WARNING: interactions powers are higher than non-interaction powers.')
+
     if X.shape[-1] != c.shape[0]:
         raise ValueError('X and c shapes do not not match. X should be (M, N), and c should be (N,).')
+    
     if include_bias:
         desmat = [np.ones(X.shape[0]).reshape(-1, 1)]
     else:
         desmat = []
+
     for o in range(1, c.max() + 1):
-        if o <= interaction_order:
-            desmat.append(PolynomialFeatures(o+1, include_bias=False, interaction_only=True).fit_transform(X[:, c>=o]**o))
-        else:
-            desmat.append(X[:, c>=o]**o)
+        desmat.append(X[:, c>=o]**o)
+        
+    if interactions is not None:
+        for o in range(1, interactions.max() + 1):
+            for ip in interaction_pairs[interactions >= o, :]:
+                desmat.append((X[:, ip[0]]**o * X[:, ip[1]]**o).reshape(-1, 1))
+
     return np.hstack(desmat)
 
 def linear_fit(X, y, w=None, model=None):
@@ -77,7 +91,7 @@ def linear_fit(X, y, w=None, model=None):
         model = LinearRegression(fit_intercept=False)
     return model.fit(X, y, sample_weight=w)
 
-def evaluate_polynomials(X, y, w=None, poly_max=1, interaction_order=0, include_bias=True, model=None):
+def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, permute_interactions=True, include_bias=True, model=None):
     """
     Evaluate all polynomial combinations and permutations of X against y.
     
@@ -92,8 +106,10 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, interaction_order=0, include_
         Should be 1 / std**2.
     poly_max : int
         The maximum order of polynomial term to consider.
-    interaction_order : int
+    max_interaction_order : int
         The highest order of interaction terms to consider.
+    permute_interactions : bool
+        If True, permutations of interaction terms are tested. Will take longer!
     include_bias : bool
         Whether or not to include a 'bias' (i.e. intercept) term in the fit.
     mode : sklearn.linear_model
@@ -113,6 +129,7 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, interaction_order=0, include_
            other model (M(i)): p(D|M(best)) / p(D|M(i)).
          - evidence : Guidlines for interpreting K, following Kass and Raftery (1995)
     """
+
     X = np.asanyarray(X)
     y = np.asanyarray(y)
 
@@ -120,28 +137,43 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, interaction_order=0, include_
         model = LinearRegression(fit_intercept=False)
 
     combs = calc_permutations(X.shape[-1], poly_max)
-    BFs = pd.DataFrame(index=range(combs.shape[0]), 
-                       columns=pd.MultiIndex.from_tuples([('order', 'X{}'.format(p)) for p in range(X.shape[-1])] + 
-                                                         [('model', p) for p in ['interaction_order', 'include_bias', 'n_covariates']] +
+    interaction_pairs = np.vstack(np.triu_indices(X.shape[-1], 1)).T
+
+    # calculate all parameter and interaction terms
+    pars = []
+    total = 0
+    for c in combs:
+        if permute_interactions:
+            interactions = calc_interaction_permutations(c, interaction_pairs, max_interaction_order)
+        else:
+            max_int_order = max_int_order = min([max(c), max_interaction_order])
+            interactions = (np.zeros((max_int_order + 1, interaction_pairs.shape[0]), dtype=int) + 
+                            np.arange(max_int_order + 1, dtype=int).reshape(-1, 1))
+        total += interactions.shape[0]
+        pars.append((c, interactions))
+
+    BFs = pd.DataFrame(index=range(total), 
+                       columns=pd.MultiIndex.from_tuples([('orders', 'X{}'.format(p)) for p in range(X.shape[-1])] + 
+                                                         [('interactions', 'X{}X{}'.format(*ip)) for ip in interaction_pairs] +
+                                                         [('model', p) for p in ['include_bias', 'n_covariates']] +
                                                          [('metrics', p) for p in ['R2', 'BF0']]))
-    
-    pbar = tqdm(total=(interaction_order + 1) * combs.shape[0])
     i = 0
-    for i_order in range(interaction_order + 1):
-        for c in combs:
-            BFs.loc[i, 'order'] = c
-            desmat = build_desmat(c, X, i_order, include_bias)
+    pbar = tqdm(total=total)        
+    for c, interactions in pars:
+        for inter in interactions:
+            desmat = build_desmat(c, X, inter, include_bias)
 
             ncov = desmat.shape[-1] - 1
             BFs.loc[i, ('model', 'n_covariates')] = ncov
 
             R2 = model.fit(desmat, y, w).score(desmat, y, w)
 
+            BFs.loc[i, 'orders'] = c
             BF0 = BayesFactor0(X.shape[0], ncov, R2)
             BFs.loc[i, ('metrics', 'BF0')] = BF0
             BFs.loc[i, ('metrics', 'R2')] = R2
 
-            BFs.loc[i, ('model', 'interaction_order')] = i_order
+            BFs.loc[i, 'interactions'] = inter
             i += 1
             pbar.update(1)
     pbar.close()
@@ -149,7 +181,7 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, interaction_order=0, include_
     BFs.loc[:, ('model', 'include_bias')] = include_bias
     BFs.loc[:, ('metrics', 'BF_max')] = BFs.loc[:, ('metrics', 'BF0')] / BFs.loc[:, ('metrics', 'BF0')].max() 
     BFs.loc[:, ('metrics', 'K')] = 1 / BFs.loc[:, ('metrics', 'BF_max')]
-    
+
     BFs.loc[:, ('metrics', 'evidence_against')] = ''
     BFs.loc[BFs.loc[:, ('metrics', 'K')] == 1, ('metrics', 'evidence_against')] = 'Best Model'
     BFs.loc[BFs.loc[:, ('metrics', 'K')] > 1, ('metrics', 'evidence_against')] = 'Not worth more than a bare mention'
