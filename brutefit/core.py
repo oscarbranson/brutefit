@@ -31,6 +31,52 @@ def calc_permutations(n, i_max=1):
         
     return np.asanyarray(list(combs))
 
+def calc_interaction_permutations(c, interaction_pairs, max_interaction_order=1):
+    """
+    Generates an array of interaction permutations.
+
+    Parameters
+    ----------
+    c : array-like
+        A sequence of N integers specifying the polynomial order
+        of each covariate.
+    interaction_pairs : array-like
+        An array of valid interaction pairs of shape (n_interactions, 2).
+    max_interaction_order : int
+        The highest order of interaction terms to consider.
+
+    Returns
+    -------
+    array-like : An array of shape [n_permutations, n_interactions]
+    """
+
+    max_int_order = min([max(c), max_interaction_order])
+    n_active = np.sum(c > 0)  # how many covariates are active
+
+    if n_active < 2:
+        out = np.zeros((1, interaction_pairs.shape[0]), dtype=int)
+    else:
+        nc = np.argwhere(c > 0)  # which covariates are active
+        # calculate combinations of these covariates
+        tmp_int_pairs = np.vstack(np.triu_indices(n_active, 1)).T
+        # identify parameter pairs
+        int_pairs = np.zeros(tmp_int_pairs.shape, dtype=int)
+        for i, co in enumerate(nc[:, 0]):
+            int_pairs[tmp_int_pairs == i] = co
+        # identify active interactions
+        active_ints = np.sum([(interaction_pairs == i).sum(1) == 2 for i in int_pairs], 0, dtype=bool)
+
+        if n_active == 2:
+            out = np.zeros((max_int_order + 1, interaction_pairs.shape[0]), dtype=int)
+            out[:, active_ints] = np.arange(max_int_order + 1, dtype=int).reshape(-1, 1)
+        else:
+            # calculate interaction permutations
+            int_combs = calc_permutations(np.sum(active_ints), max_int_order)
+
+            out = np.zeros((len(int_combs), interaction_pairs.shape[0]), dtype=int)
+            out[:, active_ints] = int_combs
+
+    return out
 
 def build_desmat(c, X, interactions=None, include_bias=True):
     """
