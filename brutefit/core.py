@@ -9,8 +9,6 @@ from functools import partial
 
 from .bayesfactor import BayesFactor0
 
-# TODO: Multi-threading
-
 def calc_permutations(n, i_max=1):
     """
     Returns all combinations and permutations of n elements with values up to i_max.
@@ -261,6 +259,7 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, perm
                                                          [('model', p) for p in ['include_bias', 'n_covariates']] +
                                                          [('metrics', p) for p in ['R2', 'BF0']]))
     
+    # assign outputs
     BFs.loc[fits[:, 0].astype(int), [('model', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = fits[:, 1:]
     BFs.loc[fits[:, 0].astype(int), 'orders'] = [p[0] for p in pars]
     BFs.loc[fits[:, 0].astype(int), 'interactions'] = [p[1] for p in pars]
