@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 from tqdm.autonotebook import tqdm
-from itertools import permutations, combinations_with_replacement
+import itertools as itt
+from itertools import permutations, combinations_with_replacement, product
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from multiprocessing import Pool, cpu_count
@@ -52,6 +53,7 @@ def calc_interaction_permutations(c, interaction_pairs, max_interaction_order=1)
 
     max_int_order = min([max(c), max_interaction_order])
     n_active = np.sum(c > 0)  # how many covariates are active
+    # print(n_active, max_int_order)
 
     if n_active < 2:
         out = np.zeros((1, interaction_pairs.shape[0]), dtype=int)
@@ -98,13 +100,14 @@ def calc_model_permutations(ncov, poly_max, max_interaction_order, permute_inter
     list : Where each item contains (c, interactions) arrays for input
     into build_desmat().
     """
-    combs = calc_permutations(ncov, poly_max)
+    combs = itt.product(range(poly_max + 1), repeat=ncov)
+    ncombs = (poly_max + 1)**ncov
     interaction_pairs = np.vstack(np.triu_indices(ncov, 1)).T
     
     # calculate all parameter and interaction terms
     pars = []
-    for c in tqdm(combs, desc='Calculating Permutations:'):
-        if permute_interactions:
+    for c in tqdm(combs, desc='Calculating Permutations:', total=ncombs):
+        if permute_interactions and max_interaction_order > 0:
             interactions = calc_interaction_permutations(c, interaction_pairs, max_interaction_order)
         else:
             max_int_order = max_int_order = min([max(c), max_interaction_order])
@@ -114,7 +117,6 @@ def calc_model_permutations(ncov, poly_max, max_interaction_order, permute_inter
             pars.append((c, i))
 
     return pars
-
 
 def build_desmat(c, X, interactions=None, include_bias=True):
     """
