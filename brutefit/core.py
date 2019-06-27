@@ -4,6 +4,8 @@ from tqdm.autonotebook import tqdm
 from itertools import permutations, combinations_with_replacement
 from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 from .bayesfactor import BayesFactor0
 
@@ -78,6 +80,44 @@ def calc_interaction_permutations(c, interaction_pairs, max_interaction_order=1)
 
     return out
 
+def calc_model_permutations(ncov, poly_max, max_interaction_order, permute_interactions):
+    """
+    Returns array of (c, interactions) arrays describing all model permutations.
+    
+    Parameters
+    ----------
+    ncov : int
+        Number of covariates.
+    poly_max : int
+        Maximum order of polynomial terms.
+    max_interaction_order : int
+        Maximum order of interactions terms.
+    permute_interactions : bool
+        Whether or not to test all permutations of interactive terms.
+        
+    Returns
+    -------
+    list : Where each item contains (c, interactions) arrays for input
+    into build_desmat().
+    """
+    combs = calc_permutations(ncov, poly_max)
+    interaction_pairs = np.vstack(np.triu_indices(ncov, 1)).T
+    
+    # calculate all parameter and interaction terms
+    pars = []
+    for c in tqdm(combs, desc='Calculating Permutations:'):
+        if permute_interactions:
+            interactions = calc_interaction_permutations(c, interaction_pairs, max_interaction_order)
+        else:
+            max_int_order = max_int_order = min([max(c), max_interaction_order])
+            interactions = (np.zeros((max_int_order + 1, interaction_pairs.shape[0]), dtype=int) + 
+                            np.arange(max_int_order + 1, dtype=int).reshape(-1, 1))
+        for i in interactions:
+            pars.append((c, i))
+
+    return pars
+
+
 def build_desmat(c, X, interactions=None, include_bias=True):
     """
     Build a design matrix from X for the polynomial specified by c.
@@ -129,7 +169,6 @@ def build_desmat(c, X, interactions=None, include_bias=True):
         for o in range(1, interactions.max() + 1):
             for ip in interaction_pairs[interactions >= o, :]:
                 desmat.append((X[:, ip[0]]**o * X[:, ip[1]]**o).reshape(-1, 1))
-
     return np.hstack(desmat)
 
 def linear_fit(X, y, w=None, model=None):
@@ -137,7 +176,18 @@ def linear_fit(X, y, w=None, model=None):
         model = LinearRegression(fit_intercept=False)
     return model.fit(X, y, sample_weight=w)
 
-def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, permute_interactions=True, include_bias=True, model=None):
+def _mp_linear_fit(cint, X, y, w=None, include_bias=True, model=None, i=0):
+    dX = build_desmat(c=cint[i][0], X=X, 
+                      interactions=cint[i][1], 
+                      include_bias=include_bias)
+    if dX is not None:
+        ncov = dX.shape[-1] - 1
+        R2 = model.fit(dX, y, sample_weight=w).score(dX, y, sample_weight=w)
+        BF = BayesFactor0(X.shape[0], ncov, R2)
+        return i, ncov, R2, BF
+
+def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, permute_interactions=True, 
+                         include_bias=True, model=None, n_processes=None, chunksize=None):
     """
     Evaluate all polynomial combinations and permutations of X against y.
     
@@ -158,10 +208,14 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, perm
         If True, permutations of interaction terms are tested. Will take longer!
     include_bias : bool
         Whether or not to include a 'bias' (i.e. intercept) term in the fit.
-    mode : sklearn.linear_model
+    model : sklearn.linear_model
         An sklearn linear_model, or a custom model object which has a
         .fit(X, y, w) method, and a .score(X, y, w) which returns an unadjusted
         R2 value for the fit. If None, sklearn.linear_model.LinearRegression is used.
+    n_processes : int
+        Number of multiprocessing threads. Defaults to os.cpu_count()
+    chunksize : int
+        The size of each subset of jobs passed to multiprocessing threads.
         
     Returns
     -------
@@ -182,47 +236,34 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, perm
     if model is None:
         model = LinearRegression(fit_intercept=False)
 
-    combs = calc_permutations(X.shape[-1], poly_max)
-    interaction_pairs = np.vstack(np.triu_indices(X.shape[-1], 1)).T
-
     # calculate all parameter and interaction terms
-    pars = []
-    total = 0
-    for c in combs:
-        if permute_interactions:
-            interactions = calc_interaction_permutations(c, interaction_pairs, max_interaction_order)
-        else:
-            max_int_order = max_int_order = min([max(c), max_interaction_order])
-            interactions = (np.zeros((max_int_order + 1, interaction_pairs.shape[0]), dtype=int) + 
-                            np.arange(max_int_order + 1, dtype=int).reshape(-1, 1))
-        total += interactions.shape[0]
-        pars.append((c, interactions))
+    pars = calc_model_permutations(X.shape[-1], poly_max, max_interaction_order, permute_interactions)
+    total = len(pars)
 
+    # build partial function for multiprocessing
+    pmp_linear_fit = partial(_mp_linear_fit, pars, X, y, w, include_bias, model)
+
+    # evaluate models
+    if n_processes is None:
+        n_processes = cpu_count()
+    if chunksize is None:
+        chunksize = total // (2 * cpu_count())
+    # do the work
+    with Pool(processes=n_processes) as p:
+        fits = list(tqdm(p.imap(pmp_linear_fit, range(len(pars)), chunksize=chunksize), total=len(pars), desc='Evaluating Models'))
+    fits = np.asanyarray(fits)
+
+    # create output dataframe
+    interaction_pairs = np.vstack(np.triu_indices(X.shape[-1], 1)).T
     BFs = pd.DataFrame(index=range(total), 
                        columns=pd.MultiIndex.from_tuples([('orders', 'X{}'.format(p)) for p in range(X.shape[-1])] + 
                                                          [('interactions', 'X{}X{}'.format(*ip)) for ip in interaction_pairs] +
                                                          [('model', p) for p in ['include_bias', 'n_covariates']] +
                                                          [('metrics', p) for p in ['R2', 'BF0']]))
-    i = 0
-    pbar = tqdm(total=total)        
-    for c, interactions in pars:
-        for inter in interactions:
-            desmat = build_desmat(c, X, inter, include_bias)
-
-            ncov = desmat.shape[-1] - 1
-            BFs.loc[i, ('model', 'n_covariates')] = ncov
-
-            R2 = model.fit(desmat, y, w).score(desmat, y, w)
-
-            BFs.loc[i, 'orders'] = c
-            BF0 = BayesFactor0(X.shape[0], ncov, R2)
-            BFs.loc[i, ('metrics', 'BF0')] = BF0
-            BFs.loc[i, ('metrics', 'R2')] = R2
-
-            BFs.loc[i, 'interactions'] = inter
-            i += 1
-            pbar.update(1)
-    pbar.close()
+    
+    BFs.loc[fits[:, 0].astype(int), [('model', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = fits[:, 1:]
+    BFs.loc[fits[:, 0].astype(int), 'orders'] = [p[0] for p in pars]
+    BFs.loc[fits[:, 0].astype(int), 'interactions'] = [p[1] for p in pars]
 
     BFs.loc[:, ('model', 'include_bias')] = include_bias
     BFs.loc[:, ('metrics', 'BF_max')] = BFs.loc[:, ('metrics', 'BF0')] / BFs.loc[:, ('metrics', 'BF0')].max() 
