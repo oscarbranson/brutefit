@@ -245,7 +245,7 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, perm
     if n_processes is None:
         n_processes = cpu_count()
     if chunksize is None:
-        chunksize = total // (2 * cpu_count())
+        chunksize = min(total // (2 * cpu_count()), 100)
     # do the work
     with Pool(processes=n_processes) as p:
         fits = list(tqdm(p.imap(pmp_linear_fit, range(len(pars)), chunksize=chunksize), total=len(pars), desc='Evaluating Models'))
