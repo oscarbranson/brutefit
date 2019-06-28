@@ -28,9 +28,9 @@ Brutefit will then loop through *all* permutations of these polynomials, with an
 To evaluate these models it calculates the [Bayes Factor](https://doi.org/10.1080/01621459.1995.10476572) relative to a null model (i.e. *y = c*) using a [this handy little method](https://doi.org/10.1198/016214507000001337). 
 
 ## What is this Bayes Factor thing?
-The Bayes Factor is a number that tells you *the probability of observing your data if [model X] is true relative to the probability of observing your data if the null model is true.* Or, if you prefer: ![img](http://latex.codecogs.com/gif.latex?B_%7B10%7D+%3D+%5Cfrac%7Bp%28D%7CM_1%29%7D%7Bp%28D%7CM_0%29%7D). In practical terms, it rewards goodness of fit (i.e. R<sup>2</sup>) and number of data points (*N*), and penalises the model degrees of freedom. So the 'best' model will be that which fits the data well without too many parameters.
+The Bayes Factor is a number that tells you *the probability of observing your data if [model X] is true relative to the probability of observing your data if the null model is true.* Or, if you prefer: ![img](http://latex.codecogs.com/gif.latex?B_%7B10%7D%3D%5Cfrac%7Bp%28D%7CM_1%29%7D%7Bp%28D%7CM_0%29%7D). In practical terms, it rewards goodness of fit (i.e. R<sup>2</sup>) and number of data points (*N*), and penalises the model degrees of freedom. So the 'best' model will be that which fits the data well without too many parameters.
 
-Because all these Bayes Factors are calculated relative to the same *null* model, we can then calculate the relative probability of the data given any two other models by ![img](http://latex.codecogs.com/gif.latex?B_%7BNM%7D+%3D+%5Cfrac%7BB_%7BN0%7D%7D%7BB_%7BM0%7D%7D).
+Because all these Bayes Factors are calculated relative to the same *null* model, we can then calculate the relative probability of the data given any two other models by ![img](http://latex.codecogs.com/gif.latex?B_%7BNM%7D%3D%5Cfrac%7BB_%7BN0%7D%7D%7BB_%7BM0%7D%7D).
 
 Using this convenient feature, we calculate Bayes Factors for *all* models relative to the 'best' model.
 
@@ -233,6 +233,6 @@ So, what's the equation for our best model? Do we have to work this out manually
 best_model = BFs.loc[BFs.loc[:, ('metrics','K')] == 1]
 sympy_eqn(best_model)
 ```
-![img](http://latex.codecogs.com/gif.latex?y+%3D+p_%7B0%7D+%2B+p_%7B1%7D+x_%7B0%7D+%2B+p_%7B2%7D+x_%7B1%7D+%2B+p_%7B3%7D+x_%7B2%7D+%2B+p_%7B4%7D+x_%7B0%7D%5E%7B2%7D+%2B+p_%7B5%7D+x_%7B2%7D%5E%7B2%7D+%2B+p_%7B6%7D+x_%7B0%7D+x_%7B1%7D+%2B+p_%7B7%7D+x_%7B0%7D+x_%7B2%7D+%2B+p_%7B8%7D+x_%7B1%7D+x_%7B2%7D+%2B+p_%7B9%7D+x_%7B1%7D%5E%7B2%7D+x_%7B2%7D%5E%7B2%7D)
+![img](http://latex.codecogs.com/gif.latex?y%3Dp_%7B0%7D%2Bp_%7B1%7Dx_%7B0%7D%2Bp_%7B2%7Dx_%7B1%7D%2Bp_%7B3%7Dx_%7B2%7D%2Bp_%7B4%7Dx_%7B0%7D%5E%7B2%7D%2Bp_%7B5%7Dx_%7B2%7D%5E%7B2%7D%2Bp_%7B6%7Dx_%7B0%7Dx_%7B1%7D%2Bp_%7B7%7Dx_%7B0%7Dx_%7B2%7D%2Bp_%7B8%7Dx_%7B1%7Dx_%7B2%7D%2Bp_%7B9%7Dx_%7B1%7D%5E%7B2%7Dx_%7B2%7D%5E%7B2%7D)
 
 Ta daa!
