@@ -17,9 +17,9 @@ It uses multi-threading to speed things up, but the code is messy and hilariousl
 
 ## How it actually works
 You give BruteFit:
-- Your independent variables as an $(M,N)$ array, where $M$ is the number of covariates (=independent variables) and $N$ is the number of datapoints.
-- Your dependent variable as an array with shape $(N,)$.
-- Weights used in fitting ($\frac{1}{\sigma^2}$) as an array with shape $(N,)$.
+- Your independent variables as an *(M,N)* array, where *M* is the number of covariates (=independent variables) and *N* is the number of datapoints.
+- Your dependent variable as an array with shape *(N,)*.
+- Weights used in fitting (![img](http://latex.codecogs.com/svg.latex?%5Cfrac%7B1%7D%7B%5Csigma%5E2%7D)) as an array with shape *(N,)*.
 - The maximum order of polynomial terms you'd like to test (`poly_max`).
 - The maximum order of interaction terms (`max_interaction_order`).
 - Whether or not to test interaction permutations (`permute_interactions`).
@@ -27,18 +27,18 @@ You give BruteFit:
 
 Brutefit will then loop through *all* permutations of these polynomials, with and without interactive terms.
 
-To evaluate these models it calculates the [Bayes Factor](https://doi.org/10.1080/01621459.1995.10476572) relative to a null model (i.e. $y = c$) using a [this handy little method](https://doi.org/10.1198/016214507000001337). 
+To evaluate these models it calculates the [Bayes Factor](https://doi.org/10.1080/01621459.1995.10476572) relative to a null model (i.e. *y = c*) using a [this handy little method](https://doi.org/10.1198/016214507000001337). 
 
 ## What is this Bayes Factor thing?
-The Bayes Factor is a number that tells you *the probability of observing your data if [model X] is true relative to the probability of observing your data if the null model is true.* Or, if you prefer: $B_{10} = \frac{p(D|M_1)}{p(D|M_0)}$. In practical terms, it rewards goodness of fit (i.e. $R^2$) and number of data points ($N$), and penalises the model degrees of freedom. So the 'best' model will be that which fits the data well without too many parameters.
+The Bayes Factor is a number that tells you *the probability of observing your data if [model X] is true relative to the probability of observing your data if the null model is true.* Or, if you prefer: ![img](http://latex.codecogs.com/gif.latex?B_%7B10%7D+%3D+%5Cfrac%7Bp%28D%7CM_1%29%7D%7Bp%28D%7CM_0%29%7D). In practical terms, it rewards goodness of fit (i.e. R<sup>2</sup>) and number of data points (*N*), and penalises the model degrees of freedom. So the 'best' model will be that which fits the data well without too many parameters.
 
-Because all these Bayes Factors are calculated relative to the same *null* model, we can then calculate the relative probability of the data given any two other models by $B_{NM} = \frac{B_{N0}}{B_{M0}}$.
+Because all these Bayes Factors are calculated relative to the same *null* model, we can then calculate the relative probability of the data given any two other models by ![img](http://latex.codecogs.com/gif.latex?B_%7BNM%7D+%3D+%5Cfrac%7BB_%7BN0%7D%7D%7BB_%7BM0%7D%7D).
 
 Using this convenient feature, we calculate Bayes Factors for *all* models relative to the 'best' model.
 
-So, what does this number actually *mean*? To ***massively*** over-simplify, your frequentist $p=0.05$ [nonsense](https://www.nature.com/news/scientific-method-statistical-errors-1.14700) (or [this](https://www.nature.com/articles/d41586-019-00857-9) or [this](https://www.bmj.com/content/362/bmj.k4039/rr-0) or even [this](https://doi.org/10.1080/00031305.2019.1583913)) would (assuming all assumptions behind the $p$ value are valid) correspond to a Bayes Factor of ~20. That is, your alternate hypothesis ($H_1$) is 20 times more probable than your null hypothesis ($H_0$). But as I said, this is an enormous and fundamentally invalid comparison... it's just to put the intimidating-sounding Bayes Factor in a possibly more familiar frame of reference.
+So, what does this number actually *mean*? To ***massively*** over-simplify, your frequentist *p=0.05* [nonsense](https://www.nature.com/news/scientific-method-statistical-errors-1.14700) (or [this](https://www.nature.com/articles/d41586-019-00857-9) or [this](https://www.bmj.com/content/362/bmj.k4039/rr-0) or even [this](https://doi.org/10.1080/00031305.2019.1583913)) would (assuming all assumptions behind the *p* value are valid) correspond to a Bayes Factor of ~20. That is, your alternate hypothesis (*H<sub>1</sub>*) is 20 times more probable than your null hypothesis (*H<sub>0</sub>*). But as I said, this is an enormous and fundamentally invalid comparison... it's just to put the intimidating-sounding Bayes Factor in a possibly more familiar frame of reference.
 
-So $K>20 = ExcellentSignificantPublishInNature$ and $K<20 = Weep$? Ish... The point here is to get away from arbitrary 'significance' cut-offs. But if you *really* want someone else to guide you on this, we can turn to a wonderfully phrased table in [Kass and Raftery (1995)](https://doi.org/10.1080/01621459.1995.10476572), which says:
+So *K>20 = ExcellentSignificantPublishInNature* and *K<20 = Weep*? No... The point here is to get away from arbitrary 'significance' cut-offs. But if you *really* want someone else to guide you on this, we can turn to a wonderfully phrased table in [Kass and Raftery (1995)](https://doi.org/10.1080/01621459.1995.10476572), which says:
 
 <table>
 <th>K</th><th>Stength of Evidence</th>
@@ -61,5 +61,5 @@ Brutefit does this for you, placing these hugely subjective categories in a hand
 
 ## I've run my bazillion models, now what?
 
-At the end of all this, you'll be presented with a wonderful table containing a summary of *all* models. The important columns to glance at are $K$ and `evidence_against`, which give the Bayes Factor relative to the 'best' model, and the subjective interpretation of this Bayes Factor. For example, A $K$ of $2$ for model $M_X$ will mean that the 'best' model is twice as probable as $M_X$.
+At the end of all this, you'll be presented with a wonderful table containing a summary of *all* models. The important columns to glance at are *K* and `evidence_against`, which give the Bayes Factor relative to the 'best' model, and the subjective interpretation of this Bayes Factor. For example, A *K* of *2* for model *M<sub>X</sub>* will mean that the 'best' model is twice as probable as *M<sub>X</sub>*.
 
