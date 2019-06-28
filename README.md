@@ -1,8 +1,8 @@
+<img align="right" width="200" src="img/brute-force.jpg">
+
 # Tired of thinking? Got Time to Spare?
 
 Are you in the business of establishing empirical relationships and then interpolating wildly? Do you struggle to work out which of umpteen different models that describes your data might be 'best'? If so, BruteFit is for you!
-
-<img align="right" width="150" src="img/brute-force.jpg">
 
 ## Try BruteFit!
 BruteFit is an inelegant solution to the age-old question of "Which polynomial best describes my data?" 
