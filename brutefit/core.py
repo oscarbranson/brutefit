@@ -10,28 +10,6 @@ from functools import partial
 
 from .bayesfactor import BayesFactor0
 
-def calc_permutations(n, i_max=1):
-    """
-    Returns all combinations and permutations of n elements with values up to i_max.
-    
-    Parameters
-    ----------
-    n : int
-        The number of items in the permutations.
-    i_max : int
-        The maximum value in the polynomial
-        
-    Returns
-    -------
-    np.ndarray : An array containing all combinations and permutations of
-        covariates orders.
-    """
-    combs = set()
-    for c in combinations_with_replacement(range(i_max+1), n):
-        combs.update(permutations(c))
-        
-    return np.asanyarray(list(combs))
-
 def calc_interaction_permutations(c, max_interaction_order=1):
     """
     Generates an array of interaction permutations.
@@ -52,13 +30,13 @@ def calc_interaction_permutations(c, max_interaction_order=1):
     max_int_order = min([max(c), max_interaction_order])
 
     n_active = sum(c > 0)
-    possible_pairs = B = np.array(list(itt.combinations(range(len(c)), 2)))
+    possible_pairs = np.array(list(itt.combinations(range(len(c)), 2)))
 
     if n_active < 2:
         interactions = np.zeros((1, possible_pairs.shape[0]), dtype=int)
     else:
         i_active_cov = np.argwhere(c > 0)[:, 0]
-        active_pairs = A = np.array(list(itt.combinations(i_active_cov, 2)))
+        active_pairs = np.array(list(itt.combinations(i_active_cov, 2)))
 
         i_active_pairs = np.any([np.all(possible_pairs == a, 1) for a in active_pairs], 0)
         n_active_pairs = sum(i_active_pairs)
