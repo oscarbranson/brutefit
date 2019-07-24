@@ -2,6 +2,15 @@ from scipy import stats
 import pandas as pd
 import numpy as np
 
+def weighted_mean(a, w, axis=0):
+    return np.sum(a * w, axis=axis) / sum(w)
+
+def weighted_std(a, w, wmean=None, axis=0):
+    if wmean is None:
+        wmean = weighted_mean(a, w, axis=axis)
+    R = a - wmean
+    return np.sqrt(np.sum(w * R**2, axis=axis) / np.sum(w))
+
 def calc_p_zero(brute, bw_method=None):
     """
     Calculate the probability the contribution of a covariate intersects with zero.
