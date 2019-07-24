@@ -78,7 +78,7 @@ def calc_model_permutations(ncov, poly_max, max_interaction_order, permute_inter
     
     # calculate all parameter and interaction terms
     pars = []
-    for c in tqdm(combs, desc='Calculating Permutations:', total=ncombs):
+    for c in tqdm(combs, desc='Calculating Permutations:', total=ncombs, leave=False):
         if permute_interactions and max_interaction_order > 0:
             interactions = calc_interaction_permutations(c, max_interaction_order)
         else:
@@ -149,17 +149,18 @@ def linear_fit(X, y, w=None, model=None):
     return model.fit(X, y, sample_weight=w)
 
 def _mp_linear_fit(cint, X, y, w=None, include_bias=True, model=None, i=0):
-    dX = build_desmat(c=cint[i][0], X=X, 
-                      interactions=cint[i][1], 
+    dX = build_desmat(c=cint[i][0], X=X,
+                      interactions=cint[i][1],
                       include_bias=include_bias)
     if dX is not None:
         ncov = dX.shape[-1] - 1
-        R2 = model.fit(dX, y, sample_weight=w).score(dX, y, sample_weight=w)
+        fit = model.fit(dX, y, sample_weight=w)
+        R2 = fit.score(dX, y, sample_weight=w)
         BF = BayesFactor0(X.shape[0], ncov, R2)
-        return i, ncov, R2, BF
+        return i, ncov, R2, BF, fit.coef_
 
 def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, permute_interactions=True, 
-                         include_bias=True, model=None, n_processes=None, chunksize=None):
+                         include_bias=True, model=None, output_coefs=False, n_processes=None, chunksize=None):
     """
     Evaluate all polynomial combinations and permutations of X against y.
     
@@ -210,6 +211,8 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, perm
 
     # calculate all parameter and interaction terms
     pars = calc_model_permutations(X.shape[-1], poly_max, max_interaction_order, permute_interactions)
+    if not include_bias:
+        pars.remove(pars[0])
     total = len(pars)
 
     # build partial function for multiprocessing
@@ -222,21 +225,37 @@ def evaluate_polynomials(X, y, w=None, poly_max=1, max_interaction_order=0, perm
         chunksize = min(total // (2 * cpu_count()), 100)
     # do the work
     with Pool(processes=n_processes) as p:
-        fits = list(tqdm(p.imap(pmp_linear_fit, range(len(pars)), chunksize=chunksize), total=len(pars), desc='Evaluating Models'))
-    fits = np.asanyarray(fits)
+        fits = list(tqdm(p.imap(pmp_linear_fit, range(len(pars)), chunksize=chunksize), total=len(pars), desc='Evaluating Models:', leave=False))
+    coefs = [f[-1] for f in fits]
+    fits = np.asanyarray([f[:-1] for f in fits])
 
     # create output dataframe
     interaction_pairs = np.vstack(np.triu_indices(X.shape[-1], 1)).T
+    columns = ([('orders', 'X{}'.format(p)) for p in range(X.shape[-1])] + 
+               [('interactions', 'X{}X{}'.format(*ip)) for ip in interaction_pairs] +
+               [('model', p) for p in ['include_bias', 'n_covariates']] +
+               [('metrics', p) for p in ['R2', 'BF0']])
+    if output_coefs:
+        if include_bias:
+            columns += [('coefs', 'C')]
+        columns += ([('coefs', 'X{}'.format(p)) for p in range(X.shape[-1])] + 
+                    [('coefs', 'X{}X{}'.format(*ip)) for ip in interaction_pairs])
     BFs = pd.DataFrame(index=range(total), 
-                       columns=pd.MultiIndex.from_tuples([('orders', 'X{}'.format(p)) for p in range(X.shape[-1])] + 
-                                                         [('interactions', 'X{}X{}'.format(*ip)) for ip in interaction_pairs] +
-                                                         [('model', p) for p in ['include_bias', 'n_covariates']] +
-                                                         [('metrics', p) for p in ['R2', 'BF0']]))
+                       columns=pd.MultiIndex.from_tuples(columns))
     
     # assign outputs
     BFs.loc[fits[:, 0].astype(int), [('model', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = fits[:, 1:]
     BFs.loc[fits[:, 0].astype(int), 'orders'] = [p[0] for p in pars]
     BFs.loc[fits[:, 0].astype(int), 'interactions'] = [p[1] for p in pars]
+
+    # assign coefficient values
+    if output_coefs:
+        for i in tqdm(BFs.index, desc='Saving Ceofficients:', leave=False):
+            coef = ['C']
+            coef += list(BFs.orders.columns[BFs.loc[i, 'orders'] == 1])
+            coef += list(BFs.interactions.columns[BFs.loc[i, 'interactions'] == 1])
+
+            BFs.loc[i, pd.IndexSlice['coefs', coef]] = coefs[i].reshape(-1)
 
     BFs.loc[:, ('model', 'include_bias')] = include_bias
     BFs.loc[:, ('metrics', 'BF_max')] = BFs.loc[:, ('metrics', 'BF0')] / BFs.loc[:, ('metrics', 'BF0')].max() 
