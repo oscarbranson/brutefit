@@ -1,2 +1,2 @@
-# from .core import evaluate_polynomials
+from .core import Brute
 from .sympy import sympy_eqn
