@@ -62,7 +62,8 @@ class Brute():
 
         self.ncov = self.X.shape[-1]
         self.interaction_pairs = np.vstack(np.triu_indices(self.ncov, 1)).T
-        
+        self.n_interactions = len(self.interaction_pairs)
+
         self.make_covariate_names()
 
         if varnames is None:
@@ -156,14 +157,24 @@ class Brute():
     @staticmethod
     def _comb_long(c, nmax):
         """
-        Turn short-form order strings into long form covariate selectors.
+        Turn short-form order identifiers into long-form covariate selectors.
 
-        i.e. (0, 1, 2) becomes [False, True, True, False, False, True]
+        i.e. (0, 1, 2), nmax=2 becomes [False, True, True, False, False, True]
         """
         if nmax == 0:
             return []
         c = np.asanyarray(c)
         return np.concatenate([c >= o + 1 for o in range(nmax)])
+
+    @staticmethod
+    def _comb_short(c, ncov):
+        """
+        Turn long-form covarite selectors into short-form order identifiers.
+
+        i.e. [False, True, True, False, False, True], ncov=3 becomes (0, 1, 2) 
+        """
+        c = np.asanyarray(c)
+        return tuple(c.reshape(len(c) // ncov, ncov).sum(0))
 
     def calc_model_permutations(self):
         """
