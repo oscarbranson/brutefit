@@ -10,6 +10,7 @@ from functools import partial
 
 from .bayesfactor import BayesFactor0
 from . import plot 
+from .stats import calc_p_zero
 
 class Brute():
     """
@@ -41,7 +42,7 @@ class Brute():
     """
     def __init__(self, X, y, w=None, poly_max=1, max_interaction_order=0, permute_interactions=True, 
                  include_bias=True, model=None, n_processes=None, chunksize=None, 
-                 scale_data=True, Scaler=None):
+                 scale_data=True, Scaler=None, varnames=None):
         self.X = np.asanyarray(X)
         self.y = np.asanyarray(y)
         self.w = np.asanyarray(w)
@@ -62,15 +63,38 @@ class Brute():
         self.ncov = self.X.shape[-1]
         self.interaction_pairs = np.vstack(np.triu_indices(self.ncov, 1)).T
         
-        self.make_coef_names()
+        self.make_covariate_names()
+
+        if varnames is None:
+            self.vardict = {'X{}'.format(k): 'X{}'.format(k) for k in range(self.ncov)}
+        elif len(varnames) == self.ncov:
+            self.vardict = {'X{}'.format(k): v for k, v in enumerate(varnames)}
+            real_names = self.coef_names.copy()
+            for k, v in self.vardict.items():
+                for i, r in enumerate(real_names):
+                    real_names[i] = r.replace(k, v)
+            for i, r in enumerate(real_names):
+                real_names[i] = r.replace('^1', ' ').strip()
+            self.vardict.update({k: v for k, v in zip(self.coef_names, real_names)})
+        else:
+            raise ValueError('varnames must be the same length as the number of independent variables ({})'.format(self.ncov))
 
         self.scaled = False
         if scale_data and not self.scaled:
             self.scale_data(Scaler=Scaler)
         
-    def make_coef_names(self):
-        self.linear_terms = ['X{}'.format(p) for p in range(self.ncov)]
-        self.interactive_terms = ['X{}X{}'.format(*ip) for ip in self.interaction_pairs]
+    def make_covariate_names(self):
+        """
+        Generate names for model covariates
+        """
+        self.linear_terms = []
+        for o in range(self.poly_max):
+            self.linear_terms += ['X{0}^{1}'.format(p, o + 1) for p in range(self.ncov)]
+
+        self.interactive_terms = []
+        for o in range(self.max_interaction_order):
+            self.interactive_terms += ['X{0}^{2}X{1}^{2}'.format(*ip, o + 1) for ip in self.interaction_pairs]
+
         self.coef_names = []
         if self.include_bias:
             self.coef_names += ['C']
@@ -87,7 +111,7 @@ class Brute():
         self.y_orig = self.y.copy()
         self.y = self.y_scaler.transform(self.y_orig)
 
-        self.scale_data = True
+        self.scaled = True
 
     def calc_interaction_permutations(self, c):
         """
@@ -129,6 +153,18 @@ class Brute():
 
         return interactions
 
+    @staticmethod
+    def _comb_long(c, nmax):
+        """
+        Turn short-form order strings into long form covariate selectors.
+
+        i.e. (0, 1, 2) becomes [False, True, True, False, False, True]
+        """
+        if nmax == 0:
+            return []
+        c = np.asanyarray(c)
+        return np.concatenate([c >= o + 1 for o in range(nmax)])
+
     def calc_model_permutations(self):
         """
         Returns array of (c, interactions) arrays describing all model permutations.
@@ -139,7 +175,7 @@ class Brute():
         into build_desmat().
         """
         combs = itt.product(range(self.poly_max + 1), repeat=self.ncov)
-        
+
         # calculate all parameter and interaction terms
         pars = []
         for c in combs:
@@ -150,7 +186,7 @@ class Brute():
                 interactions = (np.zeros((max_int_order + 1, self.interaction_pairs.shape[0]), dtype=int) + 
                                 np.arange(max_int_order + 1, dtype=int).reshape(-1, 1))
             for i in interactions:
-                pars.append((c, i))
+                pars.append((self._comb_long(c, self.poly_max), self._comb_long(i, self.max_interaction_order)))
 
         if not self.include_bias:
             pars.remove(pars[0])
@@ -211,6 +247,23 @@ class Brute():
                     desmat.append((X[:, ip[0]]**o * X[:, ip[1]]**o).reshape(-1, 1))
         return np.hstack(desmat)
     
+    def build_max_desmat(self):
+        """
+        Build design matrix to cover all model permutations
+        """
+        if self.include_bias:
+            desmat = [np.ones(self.X.shape[0]).reshape(-1, 1)]
+        else:
+            desmat = []
+        
+        for o in range(1, self.poly_max + 1):
+            desmat.append(self.X**o)
+
+        for o in range(1, self.max_interaction_order + 1):
+            for ip in self.interaction_pairs:
+                desmat.append((self.X[:, ip[0]]**o * self.X[:, ip[1]]**o).reshape(-1, 1))
+        return np.hstack(desmat)
+
     @staticmethod
     def linear_fit(X, y, w=None, model=None):
         if model is None:
@@ -255,7 +308,7 @@ class Brute():
         pars = self.calc_model_permutations()
         total = len(pars)
 
-        self.max_desmat = self.build_desmat(pars[-1][0], pars[-1][1], self.include_bias)
+        self.max_desmat = self.build_max_desmat()
 
         # build partial function for multiprocessing
         pmp_linear_fit = partial(self._mp_linear_fit, pars, self.max_desmat, self.y, self.w, self.model, self.include_bias)
@@ -302,19 +355,29 @@ class Brute():
         """
         Calculate predicted y data from all polynomials.
         """
-        self.pred_all_scaled = np.nansum(self.max_desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
         bf = self.modelfits.metrics.BF_max.values.reshape(-1, 1)
 
-        self.pred_means_scaled = weighted_mean(self.pred_all_scaled, w=bf)
-        self.pred_stds_scaled = weighted_std(self.pred_all_scaled, wmean=self.pred_means_scaled, w=bf)
+        if self.scaled:
+            self.pred_all_scaled = np.nansum(self.max_desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
+            self.pred_means_scaled = weighted_mean(self.pred_all_scaled, w=bf)
+            self.pred_stds_scaled = weighted_std(self.pred_all_scaled, wmean=self.pred_means_scaled, w=bf)
 
-        if hasattr(self, 'y_scaler'):
             self.pred_all = self.y_scaler.inverse_transform(self.pred_all_scaled)
             self.pred_means = weighted_mean(self.pred_all, w=bf)
             self.pred_stds = weighted_std(self.pred_all, wmean=self.pred_means, w=bf)
+        else:
+            self.pred_all = np.nansum(self.max_desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
+            self.pred_means = weighted_mean(self.pred_all_scaled, w=bf)
+            self.pred_stds = weighted_std(self.pred_all_scaled, wmean=self.pred_means_scaled, w=bf)
 
-    def plot_param_dists(self, xvals=None, bw_method=None, ax=None):
-        return plot.parameter_distributions(self, xvals=xvals, bw_method=bw_method, ax=ax)
+    def plot_param_dists(self, xvals=None, bw_method=None, filter_zeros=None, ax=None):
+        return plot.parameter_distributions(self, xvals=xvals, bw_method=bw_method, filter_zeros=filter_zeros, ax=ax)
+
+    def plot_obs_vs_pred(self, ax=None):
+        return plot.observed_vs_predicted(self, ax=ax)
+
+    def calc_p_zero(self, bw_method=None):
+        return calc_p_zero(self, bw_method)
 
 
 def weighted_mean(a, w, axis=0):
