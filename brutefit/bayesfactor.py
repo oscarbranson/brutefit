@@ -75,4 +75,4 @@ def BayesFactor0(N,p,R2,rscale=0.353553390593274):
     log_const = integrand(0,N,p,R2,rscale**2,True,0,np.log(modeg))
     h = quad(integrand, -np.inf, np.inf, args=(N,p,R2,rscale**2,False,log_const,np.log(modeg)))[0]
     
-    return np.exp(np.log(h) + log_const)
+    return np.nan_to_num(np.exp(np.log(h) + log_const))
