@@ -216,61 +216,8 @@ class Brute():
 
         self.pars = pars
         return pars
-
-    # def build_desmat(self, c, interactions=None, include_bias=True):
-    #     """
-    #     Build a design matrix from X for the polynomial specified by c.
-        
-    #     The order of the columns returns are:
-    #     [constant, {x_i, ... x_n}**order, {first order interactions}, {second order interactions}]
-        
-    #     Parameters
-    #     ----------
-    #     c : array-like
-    #         A sequence of N integers specifying the polynomial order
-    #         of each covariate.
-    #     X : array-like
-    #         An array of covariates of shape (M, N).
-    #     interactions : None or array-like
-    #         If None, no parameter interactions are included.
-    #         If not None, it should be an array of integers the same length as the number
-    #         of combinations of parameters in c, i.e. if c=[1,1,1]: interactions=[1, 1, 1, 1, 1, 1],
-    #         where each integer correspons to the order of the interaction between covariates
-    #         [01, 02, 03, 12, 13, 23].
-    #     include_bias : bool
-    #         Whether or not to inclue a bias (i.e. intercept) in the design matrix.
-    #     """
-    #     c = np.asanyarray(c)
-    #     X = self.X
-
-    #     interaction_pairs = np.vstack(np.triu_indices(len(c), 1)).T
-    #     if interactions is not None:
-    #         interactions = np.asanyarray(interactions)
-    #         if interaction_pairs.shape[0] != interactions.size:
-    #             msg = '\nIncorrect number of interactions specified. Should be {} for {} covariates.'.format(interaction_pairs.shape[0], c.size)
-    #             msg += '\nSpecifying the orders of interactions between: [' + ', '.join(['{}{}'.format(*i) for i in interaction_pairs]) + ']'
-    #             raise ValueError(msg)
-    #         if interactions.max() > c.max():
-    #             print('WARNING: interactions powers are higher than non-interaction powers.')
-
-    #     if X.shape[-1] != c.shape[0]:
-    #         raise ValueError('X and c shapes do not not match. X should be (M, N), and c should be (N,).')
-        
-    #     if include_bias:
-    #         desmat = [np.ones(X.shape[0]).reshape(-1, 1)]
-    #     else:
-    #         desmat = []
-
-    #     for o in range(1, c.max() + 1):
-    #         desmat.append(X[:, c>=o]**o)
-            
-    #     if interactions is not None:
-    #         for o in range(1, interactions.max() + 1):
-    #             for ip in interaction_pairs[interactions >= o, :]:
-    #                 desmat.append((X[:, ip[0]]**o * X[:, ip[1]]**o).reshape(-1, 1))
-    #     return np.hstack(desmat)
     
-    def build_max_desmat(self):
+    def build_desmat(self):
         """
         Build design matrix to cover all model permutations
         """
@@ -331,10 +278,10 @@ class Brute():
         pars = self.calc_model_permutations()
         total = len(pars)
 
-        self.max_desmat = self.build_max_desmat()
+        self.desmat = self.build_desmat()
 
         # build partial function for multiprocessing
-        pmp_linear_fit = partial(self._mp_linear_fit, pars, self.max_desmat, self.y, self.w, self.model, self.include_bias)
+        pmp_linear_fit = partial(self._mp_linear_fit, pars, self.desmat, self.y, self.w, self.model, self.include_bias)
 
         # evaluate models
         if self.chunksize is None:
@@ -381,7 +328,7 @@ class Brute():
         bf = self.modelfits.metrics.BF_max.values.reshape(-1, 1)
 
         if self.scaled:
-            self.pred_all_scaled = np.nansum(self.max_desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
+            self.pred_all_scaled = np.nansum(self.desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
             self.pred_means_scaled = weighted_mean(self.pred_all_scaled, w=bf)
             self.pred_stds_scaled = weighted_std(self.pred_all_scaled, wmean=self.pred_means_scaled, w=bf)
 
@@ -389,7 +336,7 @@ class Brute():
             self.pred_means = weighted_mean(self.pred_all, w=bf)
             self.pred_stds = weighted_std(self.pred_all, wmean=self.pred_means, w=bf)
         else:
-            self.pred_all = np.nansum(self.max_desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
+            self.pred_all = np.nansum(self.desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
             self.pred_means = weighted_mean(self.pred_all, w=bf)
             self.pred_stds = weighted_std(self.pred_all, wmean=self.pred_means, w=bf)
 
