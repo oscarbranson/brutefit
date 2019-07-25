@@ -1,4 +1,4 @@
-from scipy.stats import gaussian_kde
+from scipy.stats import gaussian_kde, norm
 import matplotlib.pyplot as plt
 import numpy as np
 from .stats import calc_p_zero
@@ -9,7 +9,7 @@ def get_limits(ax):
     
     return (min(xlim[0], ylim[0]), max(ylim[1], xlim[1]))
 
-def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None, ax=None):
+def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None, coefs=None, ax=None):
     """
     Plot a density distribution diagram for fitted models.
     """
@@ -29,11 +29,14 @@ def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None
     
     wts = model_df.loc[:, ('metrics', 'BF_max')].values.astype(float)
 
-    if isinstance(filter_zeros, (int, float)):
-        p_zero = calc_p_zero(brute)
-        coefs = p_zero.loc[p_zero.p_zero < filter_zeros].index
-    else:
-        coefs = brute.coef_names
+    if coefs is None:
+        if isinstance(filter_zeros, (int, float)):
+            p_zero = calc_p_zero(brute)
+            coefs = p_zero.loc[p_zero.p_zero < filter_zeros].index
+        else:
+            coefs = brute.coef_names
+    elif isinstance(coefs, str):
+        coefs = [coefs]
 
     for c in coefs:
         if c in brute.linear_terms:
@@ -45,17 +48,39 @@ def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None
             line_alpha = 0.6
             face_alpha = 0.1
         
-        cval = model_df.loc[:, ('coefs', c)]
-        
-        if sum(~cval.isnull()) > 1:
-                kde = gaussian_kde(cval[~cval.isnull()].values.astype(float), 
-                                   weights=wts[~cval.isnull()],
-                                   bw_method=bw_method)
-                pdf = kde.evaluate(xvals) * (kde.factor / len(cval))
+        cval = model_df.loc[:, ('coefs', c)].values.astype(float)
+        ind = ~np.isnan(cval)
+        x = cval[ind]
+        w = wts[ind]
+        # remove values with weights below lower limit to stop kde falling over
+        # when sum(w) == 1
+        if sum(w) == 1:
+            x = x[w > np.finfo(np.float16).tiny]
+            w = w[w > np.finfo(np.float16).tiny]
 
-                ax.plot(xvals, pdf, label=brute.vardict[c], alpha=line_alpha, zorder=zorder)
-                ax.fill_between(xvals, pdf, alpha=face_alpha, zorder=zorder)
+        if len(x) > 1:
+            kde = gaussian_kde(x, 
+                               weights=w,
+                               bw_method=bw_method)
+            
+            # for display purposes only: add some noise to values that are too close together
+            # Should never be necessary with noisy data.
+            if np.sum(np.diff(x)) < 0.01 * kde.factor:
+                x += np.random.normal(0, 0.01 * kde.factor, len(x))
+                kde = gaussian_kde(x, weights=w, bw_method=bw_method)
+
+            pdf = kde.evaluate(xvals) * (kde.factor / len(cval))
         
+        elif len(x) == 1:
+            # if only one value, draw a sharp distribution
+            pdf = norm.pdf(xvals, x, w * (xvals[2] - xvals[0]))
+        else:
+            pdf = []
+        
+        ax.plot(xvals, pdf, label=brute.vardict[c], alpha=line_alpha, zorder=zorder)
+        ax.fill_between(xvals, pdf, alpha=face_alpha, zorder=zorder)
+    
+    ax.set_ylim(0, ax.get_ylim()[1])
     ax.axvline(0, ls='dashed', c=(0,0,0,0.3), zorder=-1)
     ax.set_xlabel('Covariate Influence')
     ax.set_ylabel('Probability Density')
