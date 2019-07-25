@@ -8,6 +8,8 @@ from sklearn.linear_model import LinearRegression
 from multiprocessing import Pool, cpu_count
 from functools import partial
 
+idx = pd.IndexSlice
+
 from .bayesfactor import BayesFactor0
 from . import plot 
 from .stats import calc_p_zero, weighted_mean, weighted_std
@@ -39,10 +41,22 @@ class Brute():
         Number of multiprocessing threads. Defaults to os.cpu_count()
     chunksize : int
         The size of each subset of jobs passed to multiprocessing threads.
+    scale_data : bool
+        Whether or not to scale the data before evaluation.
+    Scaler : Scaler object
+        A class of similar structure to sklearn.preprocessing.StandardScaler.
+        An instance must have .fit(), .transform() and .inverse_transform() methods.
+    transform : Transformer object
+        An object with .transform() and .inverse_transform() methods which will take an
+        input array and return a transformed array of the same dimensions.
+        If provided, this will be iteratively applied to model variables.
+    evaluate_transformed : bool
+        If False, all models will be evaluated against the untransformed data. If True,
+        models will be evaluated against the transformed data.
     """
     def __init__(self, X, y, w=None, poly_max=1, max_interaction_order=0, permute_interactions=True, 
                  include_bias=True, model=None, n_processes=None, chunksize=None, 
-                 scale_data=True, Scaler=None, varnames=None):
+                 scale_data=True, Scaler=None, varnames=None, transform=None, evaluate_transformed=False):
         self.X = np.asanyarray(X)
         self.y = np.asanyarray(y)
         if w is not None:
@@ -56,6 +70,15 @@ class Brute():
         self.model = model
         self.n_processes = n_processes
         self.chunksize = chunksize
+
+        self.evaluate_transformed = evaluate_transformed
+        self.transform = transform
+        if self.transform is not None:
+            if not (hasattr(self.transform, 'transform') and hasattr(self.transform, 'inverse_transform')):
+                raise ValueError("transform must have both '.transform()' and '.inverse_transform()' methods.")
+            self.tX = self.transform.transform(self.X)
+            self.ty = self.transform.transform(self.y)
+            self.tw = self.transform.transform
 
         # check input data
         if self.y.shape[0] != self.X.shape[0]:
@@ -74,9 +97,10 @@ class Brute():
         self.n_interactions = len(self.interaction_pairs)
 
         self.make_covariate_names()
+        
 
         if varnames is None:
-            varnames = ['X{}'.format(k) for k in range(self.ncov)]
+            varnames = self.xnames
         
         if len(varnames) == self.ncov:
             self.vardict = {'X{}'.format(k): v for k, v in enumerate(varnames)}
@@ -114,6 +138,8 @@ class Brute():
             self.coef_names += ['C']
         self.coef_names += self.linear_terms + self.interactive_terms
 
+        self.xnames = ['X{}'.format(k) for k in range(self.ncov)]
+
     def scale_data(self, Scaler=None):
         if Scaler is None:
             Scaler = StandardScaler
@@ -124,6 +150,15 @@ class Brute():
         self.y_scaler = Scaler().fit(self.y)
         self.y_orig = self.y.copy()
         self.y = self.y_scaler.transform(self.y_orig)
+
+        if self.transform is not None:
+            self.tX_scaler = Scaler().fit(self.tX)
+            self.tX_orig = self.tX.copy()
+            self.tX = self.tX_scaler.transform(self.tX_orig)
+
+            self.ty_scaler = Scaler().fit(self.ty)
+            self.ty_orig = self.ty.copy()
+            self.ty = self.ty_scaler.transform(self.ty_orig)
 
         self.scaled = True
 
@@ -214,24 +249,23 @@ class Brute():
         if not self.include_bias:
             pars.remove(pars[0])
 
-        self.pars = pars
-        return pars
+        return np.vstack(pars)
     
-    def build_desmat(self):
+    def build_desmat(self, X):
         """
         Build design matrix to cover all model permutations
         """
         if self.include_bias:
-            desmat = [np.ones(self.X.shape[0]).reshape(-1, 1)]
+            desmat = [np.ones(X.shape[0]).reshape(-1, 1)]
         else:
             desmat = []
         
         for o in range(1, self.poly_max + 1):
-            desmat.append(self.X**o)
+            desmat.append(X**o)
 
         for o in range(1, self.max_interaction_order + 1):
             for ip in self.interaction_pairs:
-                desmat.append((self.X[:, ip[0]]**o * self.X[:, ip[1]]**o).reshape(-1, 1))
+                desmat.append((X[:, ip[0]]**o * X[:, ip[1]]**o).reshape(-1, 1))
         return np.hstack(desmat)
 
     @staticmethod
@@ -241,7 +275,7 @@ class Brute():
         return model.fit(X, y, sample_weight=w)
 
     @staticmethod
-    def _mp_linear_fit(cint, Xd, y, w=None, model=None, include_bias=False, i=0):
+    def _mp_linear_fit(cint, Xd, y, w=None, model=None, include_bias=False, transform=None, i=0):
         c = cint[i]
         ncov = sum(c == 1)
         if include_bias:
@@ -256,6 +290,27 @@ class Brute():
             coefs = np.full(len(ind), np.nan)
             coefs[ind] = fit.coef_[0]
             return i, ncov, R2, BF, coefs
+
+    def _fit_polys(self, permutations, desmat, inds=None):
+        total = len(permutations)
+        # build partial function for multiprocessing
+        pmp_linear_fit = partial(self._mp_linear_fit, permutations, desmat,
+                                 self.y, self.w, self.model, self.include_bias, self.transform)
+
+        # evaluate models
+        if self.chunksize is None:
+            self.chunksize = min(total // (2 * cpu_count()) + 1, 100)
+        # do the work
+        if inds is None:
+            inds = range(total)
+        else:
+            total = len(inds)
+        with Pool(processes=self.n_processes) as p:
+            pfits = list(tqdm(p.imap(pmp_linear_fit, inds, chunksize=self.chunksize), total=total, desc='Evaluating Models:', leave=False))
+        coefs = [f[-1] for f in pfits]
+        fits = np.asanyarray([f[:-1] for f in pfits])
+
+        return fits, coefs
 
     def evaluate_polynomials(self):
         """
@@ -275,35 +330,53 @@ class Brute():
         """
 
         # calculate all parameter and interaction terms
-        pars = self.calc_model_permutations()
-        total = len(pars)
+        self.permutations = self.calc_model_permutations()
+        total = len(self.permutations)
 
-        self.desmat = self.build_desmat()
+        self.desmat = self.build_desmat(self.X)                
 
-        # build partial function for multiprocessing
-        pmp_linear_fit = partial(self._mp_linear_fit, pars, self.desmat, self.y, self.w, self.model, self.include_bias)
-
-        # evaluate models
-        if self.chunksize is None:
-            self.chunksize = min(total // (2 * cpu_count()) + 1, 100)
-        # do the work
-        with Pool(processes=self.n_processes) as p:
-            fits = list(tqdm(p.imap(pmp_linear_fit, range(total), chunksize=self.chunksize), total=total, desc='Evaluating Models:', leave=False))
-            # fits = p.imap(pmp_linear_fit, range(total), chunksize=self.chunksize)
-        self.coefs = [f[-1] for f in fits]
-        self.fits = np.asanyarray([f[:-1] for f in fits])
+        fits, coefs = self._fit_polys(self.permutations, self.desmat)
 
         # create output dataframe
         columns = ([('coefs', c) for c in self.coef_names] +
                    [('metrics', p) for p in ['R2', 'BF0', 'n_covariates']])
         BFs = pd.DataFrame(index=range(total), 
-                        columns=pd.MultiIndex.from_tuples(columns))
+                           columns=pd.MultiIndex.from_tuples(columns))
         
         # assign outputs
-        BFs.loc[self.fits[:, 0].astype(int), [('metrics', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = self.fits[:, 1:]
-        BFs.loc[:, 'coefs'] = self.coefs
+        BFs.loc[fits[:, 0].astype(int), [('metrics', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = fits[:, 1:]
+        BFs.loc[:, 'coefs'] = coefs
 
-        # BFs.loc[:, ('model', 'include_bias')] = self.include_bias
+        if self.transform is not None:
+            tcols = [('transformed', k) for k in self.xnames]
+            for t in tcols:
+                BFs.loc[:, t] = False
+            i = BFs.index.max() + 1
+
+            BF_list = [BFs]
+
+            for tind in itt.product([False, True], repeat=self.ncov):
+                atind = np.asanyarray(tind)
+                tX = self.X.copy()
+                tX[:, atind == 1] = self.tX[:, atind == 1]
+
+                desmat = self.build_desmat(tX)
+                pind = np.sum(self.permutations[:, :self.ncov] & atind, axis=1) == np.sum(atind)
+                if any(atind):
+                    tfits, tcoefs = self._fit_polys(self.permutations, desmat, np.argwhere(pind)[:,0])
+                    n = len(tfits)
+
+                    tBFs = pd.DataFrame(index=range(n), 
+                                        columns=pd.MultiIndex.from_tuples(columns + tcols))
+                    tBFs.loc[:, [('metrics', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = tfits[:, 1:]
+                    tBFs.loc[:, 'coefs'] = tcoefs
+                    tBFs.loc[:, idx['transformed', self.xnames]] = atind
+
+                    BF_list.append(tBFs)
+                    i += n
+
+            BFs = pd.concat(BF_list, ignore_index=True)
+
         BFs.loc[:, ('metrics', 'BF_max')] = BFs.loc[:, ('metrics', 'BF0')] / BFs.loc[:, ('metrics', 'BF0')].max() 
         BFs.loc[:, ('metrics', 'K')] = 1 / BFs.loc[:, ('metrics', 'BF_max')]
 
