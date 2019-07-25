@@ -15,7 +15,12 @@ class logTransform(Transformer):
         super().__init__()
     
     def transform(self, x):
+        self.checkvalid(x)
         return np.log(x)
     
     def inverse_transform(self, x):
         return np.exp(x)
+
+    def checkvalid(self, x):
+        if any(x < 0):
+            raise ValueError('logTransform cannot handle negative values.')
