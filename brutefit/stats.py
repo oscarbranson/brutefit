@@ -35,3 +35,6 @@ def calc_p_zero(brute, bw_method=None):
         p_zero.loc[c, 'p_zero'] = min(p_belowzero, p_overzero)
 
     return p_zero
+
+def calc_R2(obs, pred):
+    return 1 - np.sum((obs - pred)**2) / np.sum((obs - np.mean(obs))**2)
