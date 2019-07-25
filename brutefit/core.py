@@ -45,7 +45,10 @@ class Brute():
                  scale_data=True, Scaler=None, varnames=None):
         self.X = np.asanyarray(X)
         self.y = np.asanyarray(y)
-        self.w = np.asanyarray(w)
+        if w is not None:
+            self.w = np.asanyarray(w)
+        else:
+            self.w = w
         self.poly_max = poly_max
         self.max_interaction_order = max_interaction_order
         self.permute_interactions = permute_interactions
@@ -53,6 +56,12 @@ class Brute():
         self.model = model
         self.n_processes = n_processes
         self.chunksize = chunksize
+
+        # check input data
+        if self.y.shape[0] != self.X.shape[0]:
+            raise ValueError('X ({}) and y ({}) must be same length.'.format(self.X.shape[0], self.y.shape[0]))
+        if self.y.ndim == 1:
+            self.y = self.y.reshape(-1, 1)
 
         if self.model is None:
             self.model = LinearRegression(fit_intercept=False)
@@ -67,8 +76,9 @@ class Brute():
         self.make_covariate_names()
 
         if varnames is None:
-            self.vardict = {'X{}'.format(k): 'X{}'.format(k) for k in range(self.ncov)}
-        elif len(varnames) == self.ncov:
+            varnames = ['X{}'.format(k) for k in range(self.ncov)]
+        
+        if len(varnames) == self.ncov:
             self.vardict = {'X{}'.format(k): v for k, v in enumerate(varnames)}
             real_names = self.coef_names.copy()
             for k, v in self.vardict.items():
@@ -79,9 +89,12 @@ class Brute():
             self.vardict.update({k: v for k, v in zip(self.coef_names, real_names)})
         else:
             raise ValueError('varnames must be the same length as the number of independent variables ({})'.format(self.ncov))
+        if self.include_bias:
+            self.vardict['C'] = 'C'
 
         self.scaled = False
         if scale_data and not self.scaled:
+            print('scaling')
             self.scale_data(Scaler=Scaler)
         
     def make_covariate_names(self):
@@ -182,8 +195,7 @@ class Brute():
             
         Returns
         -------
-        list : Where each item contains (c, interactions) arrays for input
-        into build_desmat().
+        list : Where each item contains (c, interactions).
         """
         combs = itt.product(range(self.poly_max + 1), repeat=self.ncov)
 
@@ -197,7 +209,7 @@ class Brute():
                 interactions = (np.zeros((max_int_order + 1, self.interaction_pairs.shape[0]), dtype=int) + 
                                 np.arange(max_int_order + 1, dtype=int).reshape(-1, 1))
             for i in interactions:
-                pars.append((self._comb_long(c, self.poly_max), self._comb_long(i, self.max_interaction_order)))
+                pars.append(np.concatenate((self._comb_long(c, self.poly_max), self._comb_long(i, self.max_interaction_order))))
 
         if not self.include_bias:
             pars.remove(pars[0])
@@ -205,58 +217,58 @@ class Brute():
         self.pars = pars
         return pars
 
-    def build_desmat(self, c, interactions=None, include_bias=True):
-        """
-        Build a design matrix from X for the polynomial specified by c.
+    # def build_desmat(self, c, interactions=None, include_bias=True):
+    #     """
+    #     Build a design matrix from X for the polynomial specified by c.
         
-        The order of the columns returns are:
-        [constant, {x_i, ... x_n}**order, {first order interactions}, {second order interactions}]
+    #     The order of the columns returns are:
+    #     [constant, {x_i, ... x_n}**order, {first order interactions}, {second order interactions}]
         
-        Parameters
-        ----------
-        c : array-like
-            A sequence of N integers specifying the polynomial order
-            of each covariate.
-        X : array-like
-            An array of covariates of shape (M, N).
-        interactions : None or array-like
-            If None, no parameter interactions are included.
-            If not None, it should be an array of integers the same length as the number
-            of combinations of parameters in c, i.e. if c=[1,1,1]: interactions=[1, 1, 1, 1, 1, 1],
-            where each integer correspons to the order of the interaction between covariates
-            [01, 02, 03, 12, 13, 23].
-        include_bias : bool
-            Whether or not to inclue a bias (i.e. intercept) in the design matrix.
-        """
-        c = np.asanyarray(c)
-        X = self.X
+    #     Parameters
+    #     ----------
+    #     c : array-like
+    #         A sequence of N integers specifying the polynomial order
+    #         of each covariate.
+    #     X : array-like
+    #         An array of covariates of shape (M, N).
+    #     interactions : None or array-like
+    #         If None, no parameter interactions are included.
+    #         If not None, it should be an array of integers the same length as the number
+    #         of combinations of parameters in c, i.e. if c=[1,1,1]: interactions=[1, 1, 1, 1, 1, 1],
+    #         where each integer correspons to the order of the interaction between covariates
+    #         [01, 02, 03, 12, 13, 23].
+    #     include_bias : bool
+    #         Whether or not to inclue a bias (i.e. intercept) in the design matrix.
+    #     """
+    #     c = np.asanyarray(c)
+    #     X = self.X
 
-        interaction_pairs = np.vstack(np.triu_indices(len(c), 1)).T
-        if interactions is not None:
-            interactions = np.asanyarray(interactions)
-            if interaction_pairs.shape[0] != interactions.size:
-                msg = '\nIncorrect number of interactions specified. Should be {} for {} covariates.'.format(interaction_pairs.shape[0], c.size)
-                msg += '\nSpecifying the orders of interactions between: [' + ', '.join(['{}{}'.format(*i) for i in interaction_pairs]) + ']'
-                raise ValueError(msg)
-            if interactions.max() > c.max():
-                print('WARNING: interactions powers are higher than non-interaction powers.')
+    #     interaction_pairs = np.vstack(np.triu_indices(len(c), 1)).T
+    #     if interactions is not None:
+    #         interactions = np.asanyarray(interactions)
+    #         if interaction_pairs.shape[0] != interactions.size:
+    #             msg = '\nIncorrect number of interactions specified. Should be {} for {} covariates.'.format(interaction_pairs.shape[0], c.size)
+    #             msg += '\nSpecifying the orders of interactions between: [' + ', '.join(['{}{}'.format(*i) for i in interaction_pairs]) + ']'
+    #             raise ValueError(msg)
+    #         if interactions.max() > c.max():
+    #             print('WARNING: interactions powers are higher than non-interaction powers.')
 
-        if X.shape[-1] != c.shape[0]:
-            raise ValueError('X and c shapes do not not match. X should be (M, N), and c should be (N,).')
+    #     if X.shape[-1] != c.shape[0]:
+    #         raise ValueError('X and c shapes do not not match. X should be (M, N), and c should be (N,).')
         
-        if include_bias:
-            desmat = [np.ones(X.shape[0]).reshape(-1, 1)]
-        else:
-            desmat = []
+    #     if include_bias:
+    #         desmat = [np.ones(X.shape[0]).reshape(-1, 1)]
+    #     else:
+    #         desmat = []
 
-        for o in range(1, c.max() + 1):
-            desmat.append(X[:, c>=o]**o)
+    #     for o in range(1, c.max() + 1):
+    #         desmat.append(X[:, c>=o]**o)
             
-        if interactions is not None:
-            for o in range(1, interactions.max() + 1):
-                for ip in interaction_pairs[interactions >= o, :]:
-                    desmat.append((X[:, ip[0]]**o * X[:, ip[1]]**o).reshape(-1, 1))
-        return np.hstack(desmat)
+    #     if interactions is not None:
+    #         for o in range(1, interactions.max() + 1):
+    #             for ip in interaction_pairs[interactions >= o, :]:
+    #                 desmat.append((X[:, ip[0]]**o * X[:, ip[1]]**o).reshape(-1, 1))
+    #     return np.hstack(desmat)
     
     def build_max_desmat(self):
         """
@@ -283,17 +295,17 @@ class Brute():
 
     @staticmethod
     def _mp_linear_fit(cint, Xd, y, w=None, model=None, include_bias=False, i=0):
-        c = np.concatenate(cint[i])
+        c = cint[i]
+        ncov = sum(c == 1)
         if include_bias:
             ind = np.concatenate([[True], c == 1])
         else:
             ind = c == 1
         dX = Xd[:, ind]
         if dX is not None:
-            ncov = dX.shape[-1] - 1
             fit = model.fit(dX, y, sample_weight=w)
             R2 = fit.score(dX, y, sample_weight=w)
-            BF = BayesFactor0(Xd.shape[0], ncov, R2)
+            BF = BayesFactor0(dX.shape[0], ncov, R2)
             coefs = np.full(len(ind), np.nan)
             coefs[ind] = fit.coef_[0]
             return i, ncov, R2, BF, coefs
@@ -326,7 +338,7 @@ class Brute():
 
         # evaluate models
         if self.chunksize is None:
-            self.chunksize = min(total // (2 * cpu_count()), 100)
+            self.chunksize = min(total // (2 * cpu_count()) + 1, 100)
         # do the work
         with Pool(processes=self.n_processes) as p:
             fits = list(tqdm(p.imap(pmp_linear_fit, range(total), chunksize=self.chunksize), total=total, desc='Evaluating Models:', leave=False))
@@ -378,11 +390,11 @@ class Brute():
             self.pred_stds = weighted_std(self.pred_all, wmean=self.pred_means, w=bf)
         else:
             self.pred_all = np.nansum(self.max_desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
-            self.pred_means = weighted_mean(self.pred_all_scaled, w=bf)
-            self.pred_stds = weighted_std(self.pred_all_scaled, wmean=self.pred_means_scaled, w=bf)
+            self.pred_means = weighted_mean(self.pred_all, w=bf)
+            self.pred_stds = weighted_std(self.pred_all, wmean=self.pred_means, w=bf)
 
-    def plot_param_dists(self, xvals=None, bw_method=None, filter_zeros=None, ax=None):
-        return plot.parameter_distributions(self, xvals=xvals, bw_method=bw_method, filter_zeros=filter_zeros, ax=ax)
+    def plot_param_dists(self, xvals=None, bw_method=None, filter_zeros=None, coefs=None, ax=None):
+        return plot.parameter_distributions(self, xvals=xvals, bw_method=bw_method, filter_zeros=filter_zeros, coefs=coefs, ax=ax)
 
     def plot_obs_vs_pred(self, ax=None):
         return plot.observed_vs_predicted(self, ax=ax)
