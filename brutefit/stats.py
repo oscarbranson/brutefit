@@ -38,3 +38,21 @@ def calc_p_zero(brute, bw_method=None):
 
 def calc_R2(obs, pred):
     return 1 - np.sum((obs - pred)**2) / np.sum((obs - np.mean(obs))**2)
+
+def calc_param_pvalues(params, X, y, ypred):
+    """
+    Returns t-test p values for all model parameters.
+    
+    Tests the null hypothesis that the parameter is zero.
+    
+    Stolen from https://stackoverflow.com/questions/27928275/find-p-value-significance-in-scikit-learn-linearregression
+    """
+    MSE = (sum((y-ypred)**2))/(X.shape[0] - X.shape[1])
+
+    var_b = MSE*(np.linalg.inv(np.dot(X.T,X)).diagonal())
+    sd_b = np.sqrt(var_b)
+    ts_b = params/ sd_b
+
+    p_values =[2*(1-stats.t.cdf(np.abs(i),(X.shape[0]-1))) for i in ts_b]
+    
+    return p_values

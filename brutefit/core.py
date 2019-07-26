@@ -12,7 +12,7 @@ idx = pd.IndexSlice
 
 from .bayesfactor import BayesFactor0
 from . import plot 
-from .stats import calc_p_zero, weighted_mean, weighted_std, calc_R2
+from .stats import calc_p_zero, weighted_mean, weighted_std, calc_R2, calc_param_pvalues
 
 class Brute():
     """
@@ -70,9 +70,14 @@ class Brute():
         self.model = model
         self.n_processes = n_processes
         self.chunksize = chunksize
+        
+        # check input data
+        if self.y.shape[0] != self.X.shape[0]:
+            raise ValueError('X ({}) and y ({}) must be same length.'.format(self.X.shape[0], self.y.shape[0]))
+        if self.y.ndim == 1:
+            self.y = self.y.reshape(-1, 1)
 
-        # self.evaluate_vs_transformed = evaluate_vs_transformed
-        # self.fit_vs_transformed = fit_vs_transformed
+        # perform transformations
         self.transform = transform
         if self.transform is not None:
             if not (hasattr(self.transform, 'transform') and hasattr(self.transform, 'inverse_transform')):
@@ -82,12 +87,6 @@ class Brute():
             self.transformed = True
         else:
             self.transformed = False
-
-        # check input data
-        if self.y.shape[0] != self.X.shape[0]:
-            raise ValueError('X ({}) and y ({}) must be same length.'.format(self.X.shape[0], self.y.shape[0]))
-        if self.y.ndim == 1:
-            self.y = self.y.reshape(-1, 1)
 
         if self.model is None:
             self.model = LinearRegression(fit_intercept=False)
@@ -103,7 +102,6 @@ class Brute():
 
         self.scaled = False
         if scale_data and not self.scaled:
-            print('scaling')
             self.scale_data(Scaler=Scaler)
         
     def make_covariate_names(self, varnames):
@@ -286,21 +284,31 @@ class Brute():
             ind = c == 1
         dX = Xd[:, ind]
         if dX is not None:
-            try:
-                fit = model.fit(dX, y, sample_weight=w)
-            except:
-                print(w)
+            fit = model.fit(dX, y, sample_weight=w)
+
+            coefs = np.full(len(ind), np.nan)
+            coefs[ind] = fit.coef_[0]
+
+            pvalues = np.full(len(ind), np.nan)
+            pvalues[ind] = calc_param_pvalues(fit.coef_[0], dX, y, fit.predict(dX))
+
             if transformer is not None:
                 # if transformer is provided, back-transform the data before calculating R2
                 yp = transformer.inverse_transform(fit.predict(dX))
                 ym = transformer.inverse_transform(y)
                 R2 = calc_R2(ym, yp)
+                if np.all(c == [True, True, True, False, True, True, False]):
+                    print('trans', R2)
+
             else:
                 R2 = fit.score(dX, y)
+                if np.all(c == [True, True, True, False, True, True, False]):
+                    print('notrans', R2)
+
+            
             BF = BayesFactor0(dX.shape[0], ncov, R2)
-            coefs = np.full(len(ind), np.nan)
-            coefs[ind] = fit.coef_[0]
-            return i, ncov, R2, BF, coefs
+
+            return i, ncov, R2, BF, coefs, pvalues
 
     def _fit_polys(self, y, w, permutations, desmat, transformer=None, inds=None, pbar=True, pbar_desc=None):
         total = len(permutations)
@@ -322,10 +330,11 @@ class Brute():
                 pfits = list(tqdm(p.imap(pmp_linear_fit, inds, chunksize=self.chunksize), total=total, desc=pbar_desc, leave=True))
             else:
                 pfits = list(p.imap(pmp_linear_fit, inds, chunksize=self.chunksize))
-        coefs = [f[-1] for f in pfits]
-        fits = np.asanyarray([f[:-1] for f in pfits])
+        coefs = [f[-2] for f in pfits]
+        pvalues = [f[-1] for f in pfits]
+        fits = np.asanyarray([f[:-2] for f in pfits])
 
-        return fits, coefs
+        return fits, coefs, pvalues
 
     def evaluate_polynomials(self, fit_vs_transformed=True, evaluate_vs_transformed=False):
         """
@@ -343,17 +352,19 @@ class Brute():
             other model (M(i)): p(D|M(best)) / p(D|M(i)).
             - evidence : Guidlines for interpreting K, following Kass and Raftery (1995)
         """
-
-        # calculate all parameter and interaction terms
+        # calculate all parameter and interaction permutations
         self.permutations = self.calc_model_permutations()
         total = len(self.permutations)
 
+        # Build design matrix for most complex model
         self.desmat = self.build_desmat(self.X)                
 
-        fits, coefs = self._fit_polys(self.y, self.w, self.permutations, self.desmat, pbar_desc='Evaluating Models:')
+        # fit all non-transformed models
+        fits, coefs, pvalues = self._fit_polys(self.y, self.w, self.permutations, self.desmat, pbar_desc='Evaluating Models:')
 
         # create output dataframe
         columns = ([('coefs', c) for c in self.coef_names] +
+                   [('p_values', c) for c in self.coef_names] +
                    [('metrics', p) for p in ['R2', 'BF0', 'n_covariates']])
         BFs = pd.DataFrame(index=range(total), 
                            columns=pd.MultiIndex.from_tuples(columns))
@@ -361,7 +372,11 @@ class Brute():
         # assign outputs
         BFs.loc[fits[:, 0].astype(int), [('metrics', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = fits[:, 1:]
         BFs.loc[:, 'coefs'] = coefs
+        BFs.loc[:, 'p_values'] = pvalues
 
+        # if transformations are happening...
+        self.fit_vs_transformed = fit_vs_transformed
+        self.evaluate_vs_transformed = evaluate_vs_transformed
         if self.transformed:
             tcols = [('transformed', k) for k in self.xnames]
             for t in tcols:
@@ -380,22 +395,26 @@ class Brute():
             else:
                 transformer = self.transform
             
+            self.trans_desmats = {}
+
+            # Some redundancy here. Could do away with separate calculation of untransformed above, and just evaluate case where
+            # all(~tind).
             for tind in tqdm(itt.product([False, True], repeat=self.ncov), total=2**self.ncov, desc='Evaluating Transformed:'):
                 atind = np.asanyarray(tind)
                 tX = self.X.copy()
                 tX[:, atind == 1] = self.tX[:, atind == 1]
 
-                desmat = self.build_desmat(tX)
-
+                self.trans_desmats[tind] = self.build_desmat(tX)
                 pind = self.permutations[:, atind].sum(1) == sum(atind)
                 if any(atind):
-                    tfits, tcoefs = self._fit_polys(y, self.w, self.permutations, desmat, transformer, np.argwhere(pind)[:,0], pbar=False)
+                    tfits, tcoefs, tpvalues = self._fit_polys(y, self.w, self.permutations, self.trans_desmats[tind], transformer, np.argwhere(pind)[:,0], pbar=False)
                     n = len(tfits)
 
                     tBFs = pd.DataFrame(index=range(n), 
                                         columns=pd.MultiIndex.from_tuples(columns + tcols))
                     tBFs.loc[:, [('metrics', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = tfits[:, 1:]
                     tBFs.loc[:, 'coefs'] = tcoefs
+                    tBFs.loc[:, 'p_values'] = tpvalues
                     tBFs.loc[:, idx['transformed', self.xnames]] = atind
 
                     BF_list.append(tBFs)
@@ -420,29 +439,36 @@ class Brute():
 
         return BFs
 
-    def predict(self):
+    def predict(self, model_ind=None):
         """
         Calculate predicted y data from all polynomials.
         """
-        if self.transform is None:
-            modelfits = self.modelfits
+        # calculate all predictions
+        if self.transformed:
+            self.pred_all = np.zeros((self.modelfits.shape[0], self.X.shape[0]))
+            for t, tdesmat in self.trans_desmats.items():
+                tind = np.all(self.modelfits.transformed == t, 1)
+                pred = np.nansum(tdesmat * self.modelfits.coefs.values[tind, np.newaxis, :], axis=2).astype(float)
+                if np.any(t):
+                    if self.fit_vs_transformed:
+                        pred = self.transform.inverse_transform(pred)
+                self.pred_all[tind] = pred
         else:
-            modelfits = self.modelfits.loc[self.modelfits.transformed.sum(1) == 0]
+            self.pred_all = np.nansum(self.desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
 
-        bf = modelfits.metrics.BF_max.values.reshape(-1, 1)
+        # get weights for recombination
+        bf = self.modelfits.metrics.BF_max.values.reshape(-1, 1)
 
+        # un-scale, if appropriate
         if self.scaled:
-            self.pred_all_scaled = np.nansum(self.desmat * modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
+            self.pred_all_scaled = self.pred_all.copy()
             self.pred_means_scaled = weighted_mean(self.pred_all_scaled, w=bf)
             self.pred_stds_scaled = weighted_std(self.pred_all_scaled, wmean=self.pred_means_scaled, w=bf)
 
             self.pred_all = self.y_scaler.inverse_transform(self.pred_all_scaled)
-            self.pred_means = weighted_mean(self.pred_all, w=bf)
-            self.pred_stds = weighted_std(self.pred_all, wmean=self.pred_means, w=bf)
-        else:
-            self.pred_all = np.nansum(self.desmat * modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
-            self.pred_means = weighted_mean(self.pred_all, w=bf)
-            self.pred_stds = weighted_std(self.pred_all, wmean=self.pred_means, w=bf)
+        
+        self.pred_means = weighted_mean(self.pred_all, w=bf)
+        self.pred_stds = weighted_std(self.pred_all, wmean=self.pred_means, w=bf)
 
     def plot_param_dists(self, xvals=None, bw_method=None, filter_zeros=None, coefs=None, ax=None):
         return plot.parameter_distributions(self, xvals=xvals, bw_method=bw_method, filter_zeros=filter_zeros, coefs=coefs, ax=ax)
