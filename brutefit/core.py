@@ -79,10 +79,6 @@ class Brute():
                 raise ValueError("transform must have both '.transform()' and '.inverse_transform()' methods.")
             self.tX = self.transform.transform(self.X)
             self.ty = self.transform.transform(self.y)
-            if w is None:
-                self.tw = self.w
-            else:
-                self.tw = self.transform.transform(self.w)
             self.transformed = True
         else:
             self.transformed = False
@@ -290,7 +286,10 @@ class Brute():
             ind = c == 1
         dX = Xd[:, ind]
         if dX is not None:
-            fit = model.fit(dX, y, sample_weight=w)
+            try:
+                fit = model.fit(dX, y, sample_weight=w)
+            except:
+                print(w)
             if transformer is not None:
                 # if transformer is provided, back-transform the data before calculating R2
                 yp = transformer.inverse_transform(fit.predict(dX))
@@ -303,7 +302,7 @@ class Brute():
             coefs[ind] = fit.coef_[0]
             return i, ncov, R2, BF, coefs
 
-    def _fit_polys(self, y, w, permutations, desmat, transformer=None, inds=None):
+    def _fit_polys(self, y, w, permutations, desmat, transformer=None, inds=None, pbar=True, pbar_desc=None):
         total = len(permutations)
 
         # build partial function for multiprocessing
@@ -319,7 +318,10 @@ class Brute():
         else:
             total = len(inds)
         with Pool(processes=self.n_processes) as p:
-            pfits = list(tqdm(p.imap(pmp_linear_fit, inds, chunksize=self.chunksize), total=total, desc='Evaluating Models:', leave=False))
+            if pbar:
+                pfits = list(tqdm(p.imap(pmp_linear_fit, inds, chunksize=self.chunksize), total=total, desc=pbar_desc, leave=True))
+            else:
+                pfits = list(p.imap(pmp_linear_fit, inds, chunksize=self.chunksize))
         coefs = [f[-1] for f in pfits]
         fits = np.asanyarray([f[:-1] for f in pfits])
 
@@ -348,7 +350,7 @@ class Brute():
 
         self.desmat = self.build_desmat(self.X)                
 
-        fits, coefs = self._fit_polys(self.y, self.w, self.permutations, self.desmat)
+        fits, coefs = self._fit_polys(self.y, self.w, self.permutations, self.desmat, pbar_desc='Evaluating Models:')
 
         # create output dataframe
         columns = ([('coefs', c) for c in self.coef_names] +
@@ -370,26 +372,24 @@ class Brute():
 
             if fit_vs_transformed:
                 y = self.ty
-                w = self.ty
             else:
                 y = self.y
-                w = self.w
             
             if evaluate_vs_transformed:
                 transformer = None
             else:
                 transformer = self.transform
-
-            for tind in itt.product([False, True], repeat=self.ncov):
+            
+            for tind in tqdm(itt.product([False, True], repeat=self.ncov), total=2**self.ncov, desc='Evaluating Transformed:'):
                 atind = np.asanyarray(tind)
                 tX = self.X.copy()
                 tX[:, atind == 1] = self.tX[:, atind == 1]
 
                 desmat = self.build_desmat(tX)
 
-                pind = np.sum(self.permutations[:, :self.ncov] & atind, axis=1) == np.sum(atind)
+                pind = self.permutations[:, atind].sum(1) == sum(atind)
                 if any(atind):
-                    tfits, tcoefs = self._fit_polys(y, w, self.permutations, desmat, transformer, np.argwhere(pind)[:,0])
+                    tfits, tcoefs = self._fit_polys(y, self.w, self.permutations, desmat, transformer, np.argwhere(pind)[:,0], pbar=False)
                     n = len(tfits)
 
                     tBFs = pd.DataFrame(index=range(n), 

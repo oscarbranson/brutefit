@@ -22,5 +22,5 @@ class logTransform(Transformer):
         return np.exp(x)
 
     def checkvalid(self, x):
-        if any(x < 0):
+        if np.any(x < 0):
             raise ValueError('logTransform cannot handle negative values.')
