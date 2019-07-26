@@ -80,7 +80,7 @@ def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None
         ax.plot(xvals, pdf, label=brute.vardict[c], alpha=line_alpha, zorder=zorder)
         ax.fill_between(xvals, pdf, alpha=face_alpha, zorder=zorder)
     
-    ax.set_ylim(0, ax.get_ylim()[1])
+    # ax.set_ylim(0, ax.get_ylim()[1])
     ax.axvline(0, ls='dashed', c=(0,0,0,0.3), zorder=-1)
     ax.set_xlabel('Covariate Influence')
     ax.set_ylabel('Probability Density')
@@ -98,9 +98,16 @@ def observed_vs_predicted(brute, ax):
         brute.predict()
 
     if brute.scaled:
-        ax.errorbar(brute.y_orig, brute.pred_means, xerr=brute.w, yerr=brute.pred_stds, marker='o', lw=0, elinewidth=1)
+        y = brute.y_orig
     else:
-        ax.errorbar(brute.y, brute.pred_means, yerr=brute.pred_stds, marker='o', lw=0, elinewidth=1)
+        y = brute.y
+    
+    if brute.w is not None:
+        xerr = (1 / brute.w)**0.5
+    else:
+        xerr = None
+
+    ax.errorbar(y, brute.pred_means, xerr=xerr, yerr=brute.pred_stds, marker='o', lw=0, elinewidth=1)
 
     ax.set_xlabel('Measured')
     ax.set_ylabel('Predicted')
