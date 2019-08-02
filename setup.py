@@ -18,5 +18,5 @@ setup(name='brutefit',
                         'pandas',
                         'sympy',
                         'tqdm'],
-      package_data={'cbsyst': ['test_data/*']},
+      # package_data={'cbsyst': ['test_data/*']},
       zip_safe=True)
