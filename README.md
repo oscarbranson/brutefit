@@ -1,3 +1,7 @@
+<div align="right">
+  <a href="https://zenodo.org/badge/latestdoi/194186954"><img src="https://zenodo.org/badge/194186954.svg" alt="DOI" height="18"></a>
+</div>
+
 # Tired of thinking?
 
 Are you in the business of establishing empirical relationships and then interpolating wildly? Do you struggle to work out which of umpteen different models that describes your data might be 'best'? If so...
