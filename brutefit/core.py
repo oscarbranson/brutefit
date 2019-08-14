@@ -297,15 +297,14 @@ class Brute():
                 yp = transformer.inverse_transform(fit.predict(dX))
                 ym = transformer.inverse_transform(y)
                 R2 = calc_R2(ym, yp)
-                if np.all(c == [True, True, True, False, True, True, False]):
-                    print('trans', R2)
+                # if np.all(c == [True, True, True, False, True, True, False]):
+                #     print('trans', R2)
 
             else:
                 R2 = fit.score(dX, y)
-                if np.all(c == [True, True, True, False, True, True, False]):
-                    print('notrans', R2)
+                # if np.all(c == np.array([True, True, True, False, True, True, False])):
+                #     print('notrans', R2)
 
-            
             BF = BayesFactor0(dX.shape[0], ncov, R2)
 
             return i, ncov, R2, BF, coefs, pvalues

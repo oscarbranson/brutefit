@@ -11,6 +11,9 @@ Adapted from R code by David Heslop (david.heslop@anu.edu.au)
 import numpy as np
 from scipy.special import gammaln
 from scipy.integrate import quad
+import warnings
+
+warnings.simplefilter('ignore')
 
 def rsquared(obs, pred):
     return 1 - np.sum((obs - pred)**2) / np.sum((obs - np.mean(obs))**2)

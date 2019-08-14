@@ -8,8 +8,9 @@ def weighted_mean(a, w, axis=0):
 def weighted_std(a, w, wmean=None, axis=0):
     if wmean is None:
         wmean = weighted_mean(a, w, axis=axis)
-    R = a - wmean
-    return np.sqrt(np.sum(w * R**2, axis=axis) / np.sum(w))
+    R = (a - wmean).astype(float)
+    w = w.astype(float)
+    return np.sqrt(np.sum(w * np.power(R, 2), axis=axis) / np.sum(w))
 
 def calc_p_zero(brute, bw_method=None):
     """
