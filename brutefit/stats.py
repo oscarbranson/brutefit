@@ -57,3 +57,72 @@ def calc_param_pvalues(params, X, y, ypred):
     p_values =[2*(1-stats.t.cdf(np.abs(i),(X.shape[0]-1))) for i in ts_b]
     
     return p_values
+
+def calc_param_distributions(brute, xvals=None, bw_method=None, filter_zeros=None, coefs=None):
+    """
+    Calculate weighted density distributions for fitted model parameters.
+    """
+    model_df = brute.modelfits
+
+    if xvals is None:
+        mn = np.nanmin(model_df.coefs)
+        mx = np.nanmax(model_df.coefs)
+        rn = mx - mn
+        pad = 0.05
+        xvals = np.linspace(mn - rn * pad, mx + rn * pad, 500)
+    
+    wts = model_df.loc[:, ('metrics', 'BF_max')].values.astype(float)
+
+    out = pd.DataFrame(index=xvals, columns=model_df.coefs.columns)
+
+    if coefs is None:
+        if isinstance(filter_zeros, (int, float)):
+            p_zero = calc_p_zero(brute)
+            coefs = p_zero.loc[p_zero.p_zero < filter_zeros].index
+        else:
+            coefs = brute.coef_names
+    elif isinstance(coefs, str):
+        coefs = [coefs]
+
+    for c in coefs:
+        if c in brute.linear_terms:
+            line_alpha = 1
+            face_alpha = 0.4
+            zorder=1
+        else:
+            zorder=0
+            line_alpha = 0.6
+            face_alpha = 0.1
+        
+        cval = model_df.loc[:, ('coefs', c)].values.astype(float)
+        ind = ~np.isnan(cval)
+        x = cval[ind]
+        w = wts[ind]
+        # remove values with weights below lower limit to stop kde falling over
+        # when sum(w) == 1
+        if sum(w) == 1:
+            x = x[w > np.finfo(np.float16).tiny]
+            w = w[w > np.finfo(np.float16).tiny]
+
+        if len(x) > 1:
+            kde = stats.gaussian_kde(x, 
+                                     weights=w,
+                                     bw_method=bw_method)
+            
+            # for display purposes only: add some noise to values that are too close together
+            # Should never be necessary with noisy data.
+            if np.sum(np.diff(x)) < 0.01 * kde.factor:
+                x += np.random.normal(0, 0.01 * kde.factor, len(x))
+                kde = stats.gaussian_kde(x, weights=w, bw_method=bw_method)
+
+            pdf = kde.evaluate(xvals) * (kde.factor / len(cval))
+            out.loc[:, c] = pdf
+
+        elif len(x) == 1:
+            # if only one value, draw a sharp distribution
+            pdf = stats.norm.pdf(xvals, x, w * (xvals[2] - xvals[0]))
+            out.loc[:, c] = pdf
+        
+    return out
+
+        

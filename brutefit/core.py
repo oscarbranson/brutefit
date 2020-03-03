@@ -126,6 +126,8 @@ class Brute():
         if varnames is None:
             varnames = self.xnames
         
+        self.varnames = varnames
+        
         if len(varnames) == self.ncov:
             self.vardict = {'X{}'.format(k): v for k, v in enumerate(varnames)}
             real_names = self.coef_names.copy()
@@ -404,7 +406,9 @@ class Brute():
                 tX[:, atind == 1] = self.tX[:, atind == 1]
 
                 self.trans_desmats[tind] = self.build_desmat(tX)
-                pind = self.permutations[:, atind].sum(1) == sum(atind)
+                # check to see whether transformed variables are active
+                # ptind = np.concatenate([atind] * self.poly_max)
+                pind = self.permutations[:, :self.ncov][:, atind].sum(1) == sum(atind)
                 if any(atind):
                     tfits, tcoefs, tpvalues = self._fit_polys(y, self.w, self.permutations, self.trans_desmats[tind], transformer, np.argwhere(pind)[:,0], pbar=False)
                     n = len(tfits)
