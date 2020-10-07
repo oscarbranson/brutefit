@@ -126,6 +126,8 @@ class Brute():
         if varnames is None:
             varnames = self.xnames
         
+        self.varnames = varnames
+        
         if len(varnames) == self.ncov:
             self.vardict = {'X{}'.format(k): v for k, v in enumerate(varnames)}
             real_names = self.coef_names.copy()
@@ -370,8 +372,8 @@ class Brute():
         
         # assign outputs
         BFs.loc[fits[:, 0].astype(int), [('metrics', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = fits[:, 1:]
-        BFs.loc[:, 'coefs'] = coefs
-        BFs.loc[:, 'p_values'] = pvalues
+        BFs['coefs'] = np.array(coefs)
+        BFs['p_values'] = np.array(pvalues)
 
         # if transformations are happening...
         self.fit_vs_transformed = fit_vs_transformed
@@ -404,7 +406,9 @@ class Brute():
                 tX[:, atind == 1] = self.tX[:, atind == 1]
 
                 self.trans_desmats[tind] = self.build_desmat(tX)
-                pind = self.permutations[:, atind].sum(1) == sum(atind)
+                # check to see whether transformed variables are active
+                # ptind = np.concatenate([atind] * self.poly_max)
+                pind = self.permutations[:, :self.ncov][:, atind].sum(1) == sum(atind)
                 if any(atind):
                     tfits, tcoefs, tpvalues = self._fit_polys(y, self.w, self.permutations, self.trans_desmats[tind], transformer, np.argwhere(pind)[:,0], pbar=False)
                     n = len(tfits)
@@ -438,7 +442,7 @@ class Brute():
 
         return BFs
 
-    def predict(self, model_ind=None):
+    def predict(self):
         """
         Calculate predicted y data from all polynomials.
         """
@@ -472,8 +476,8 @@ class Brute():
     def plot_param_dists(self, xvals=None, bw_method=None, filter_zeros=None, coefs=None, ax=None):
         return plot.parameter_distributions(self, xvals=xvals, bw_method=bw_method, filter_zeros=filter_zeros, coefs=coefs, ax=ax)
 
-    def plot_obs_vs_pred(self, ax=None):
-        return plot.observed_vs_predicted(self, ax=ax)
+    def plot_obs_vs_pred(self, model_ind=None, ax=None):
+        return plot.observed_vs_predicted(self, model_ind=model_ind, ax=ax)
 
     def calc_p_zero(self, bw_method=None):
         return calc_p_zero(self, bw_method)
