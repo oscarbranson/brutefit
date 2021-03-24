@@ -1,7 +1,8 @@
 from setuptools import setup, find_packages
+import brutefit
 
 setup(name='brutefit',
-      version='0.0.1',
+      version=brutefit.__version__,
       description='Tools for finding an arbitrary multivariate polynomial that best fits some data.',
       url='https://github.com/oscarbranson/brutefit',
       author='Oscar Branson',
