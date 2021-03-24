@@ -18,6 +18,11 @@ If you have a lot of independent variables, the number of permutations can obvio
 
 It uses multi-threading to speed things up, but the code is messy and hilariously inneficient... so... well... fix it yourself. Or implement something better.
 
+## Installation
+```
+pip install brutefit
+```
+
 ## How it actually works
 You give BruteFit:
 - Your independent variables as an *(M,N)* array, where *M* is the number of covariates (=independent variables) and *N* is the number of datapoints.
