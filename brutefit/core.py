@@ -476,8 +476,8 @@ class Brute():
     def plot_param_dists(self, xvals=None, bw_method=None, filter_zeros=None, coefs=None, ax=None):
         return plot.parameter_distributions(self, xvals=xvals, bw_method=bw_method, filter_zeros=filter_zeros, coefs=coefs, ax=ax)
 
-    def plot_obs_vs_pred(self, model_ind=None, ax=None):
-        return plot.observed_vs_predicted(self, model_ind=model_ind, ax=ax)
+    def plot_obs_vs_pred(self, model_ind=None, ax=None, **kwargs):
+        return plot.observed_vs_predicted(self, model_ind=model_ind, ax=ax, **kwargs)
 
     def calc_p_zero(self, bw_method=None):
         return calc_p_zero(self, bw_method)
