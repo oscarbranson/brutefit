@@ -1,4 +1,5 @@
 <div align="right">
+  <a href="https://badge.fury.io/py/brutefit"><img src="https://badge.fury.io/py/brutefit.svg" alt="PyPI version" height="18"></a>
   <a href="https://zenodo.org/badge/latestdoi/194186954"><img src="https://zenodo.org/badge/194186954.svg" alt="DOI" height="18"></a>
 </div>
 
