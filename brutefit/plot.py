@@ -85,7 +85,7 @@ def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None
     ax.set_xlabel('Covariate Influence')
     ax.set_ylabel('Probability Density')
 
-def observed_vs_predicted(brute, ax):
+def observed_vs_predicted(brute, model_ind=None, ax=None, **kwargs):
     """
     Plot observed vs. predicted data.
     """
@@ -107,8 +107,16 @@ def observed_vs_predicted(brute, ax):
     else:
         xerr = None
 
-    ax.errorbar(y, brute.pred_means, xerr=xerr, yerr=brute.pred_stds, marker='o', lw=0, elinewidth=1)
+    if model_ind is None:
+        ax.scatter(y, brute.pred_means, **kwargs)
+        ax.errorbar(y, brute.pred_means, xerr=xerr, yerr=brute.pred_stds, lw=0, elinewidth=1)
+    else:
+        ax.scatter(y, brute.pred_all[model_ind], **kwargs)
+        ax.errorbar(y, brute.pred_all[model_ind], xerr=xerr, lw=0, elinewidth=1)
 
     ax.set_xlabel('Measured')
-    ax.set_ylabel('Predicted')
+    if model_ind is None:
+        ax.set_ylabel('Predicted (all models)')
+    else:
+        ax.set_ylabel(f'Predicted (model {model_ind:.0f})')
     ax.set_aspect(1)
