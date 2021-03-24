@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from tqdm.autonotebook import tqdm
+from tqdm.notebook import tqdm
 import itertools as itt
 from itertools import permutations, combinations_with_replacement, product
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
