@@ -77,8 +77,8 @@ def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None
         else:
             pdf = []
         
-        ax.plot(xvals, pdf, label=brute.vardict[c], alpha=line_alpha, zorder=zorder)
-        ax.fill_between(xvals, pdf, alpha=face_alpha, zorder=zorder)
+        ax.plot(xvals, pdf, label=brute.vardict[c], color=brute.varcolors[c], alpha=line_alpha, zorder=zorder)
+        ax.fill_between(xvals, pdf, color=brute.varcolors[c], alpha=face_alpha, zorder=zorder)
     
     # ax.set_ylim(0, ax.get_ylim()[1])
     ax.axvline(0, ls='dashed', c=(0,0,0,0.3), zorder=-1)
@@ -111,6 +111,7 @@ def observed_vs_predicted(brute, model_ind=None, ax=None, **kwargs):
         ax.scatter(y, brute.pred_means, **kwargs)
         ax.errorbar(y, brute.pred_means, xerr=xerr, yerr=brute.pred_stds, lw=0, elinewidth=1)
     else:
+        print(model_ind)
         ax.scatter(y, brute.pred_all[model_ind], **kwargs)
         ax.errorbar(y, brute.pred_all[model_ind], xerr=xerr, lw=0, elinewidth=1)
 

@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 from tqdm.notebook import tqdm
 import itertools as itt
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 from itertools import permutations, combinations_with_replacement, product
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 from sklearn.linear_model import LinearRegression
@@ -55,7 +57,7 @@ class Brute():
         models will be evaluated against the transformed data.
     """
     def __init__(self, X, y, w=None, poly_max=1, max_interaction_order=0, permute_interactions=True, 
-                 include_bias=True, model=None, n_processes=None, chunksize=None, 
+                 include_bias=True, model=None, n_processes=None, chunksize=None, cmap=None,
                  scale_data=True, Scaler=None, varnames=None, transform=None, fit_vs_transformed=True, evaluate_vs_transformed=False):
         self.X = np.asanyarray(X)
         self.y = np.asanyarray(y)
@@ -99,6 +101,7 @@ class Brute():
         self.n_interactions = len(self.interaction_pairs)
 
         self.make_covariate_names(varnames)
+        self.set_covariate_colors(cmap=cmap)
 
         self.scaled = False
         if scale_data and not self.scaled:
@@ -128,7 +131,7 @@ class Brute():
         
         self.varnames = varnames
         
-        if len(varnames) == self.ncov:
+        if len(self.varnames) == self.ncov:
             self.vardict = {'X{}'.format(k): v for k, v in enumerate(varnames)}
             real_names = self.coef_names.copy()
             for k, v in self.vardict.items():
@@ -136,11 +139,38 @@ class Brute():
                     real_names[i] = r.replace(k, v)
             for i, r in enumerate(real_names):
                 real_names[i] = r.replace('^1', ' ').strip()
-            self.vardict.update({k: v for k, v in zip(self.coef_names, real_names)})
+            self.vardict = {k: v for k, v in zip(self.coef_names, real_names)}
         else:
             raise ValueError('varnames must be the same length as the number of independent variables ({})'.format(self.ncov))
         if self.include_bias:
             self.vardict['C'] = 'C'
+    
+    def set_covariate_colors(self, cmap=None):
+        n_labels = len(self.varnames)
+        if not hasattr(self, 'varcolors'):
+            self.varcolors = {}
+
+        if cmap is None:
+            # if cmap is not given, set to default color cycler.
+            color_cycler = plt.rcParams['axes.prop_cycle']()
+            for k in self.vardict.keys():
+                self.varcolors[k] = next(color_cycler)['color']
+            if 'C' in self.varcolors:
+                self.varcolors['C'] = '#666666'
+        elif isinstance(cmap, mpl.colors.Colormap):
+            for k, i in zip(self.vardict.keys(), np.linspace(0, 1, n_labels)):
+                self.varcolors[k] = cmap(i)
+            if 'C' in self.varcolors:
+                self.varcolors['C'] = '#666666'
+        elif isinstance(cmap, dict):
+            i_vardict = {v: k for k, v in self.vardict.items()}
+            for var, c in cmap.items():
+                if var in self.vardict:
+                    self.varcolors[var] = c
+                elif var in i_vardict:
+                    self.varcolors[i_vardict[var]] = c
+        else:    
+            raise ValueError('`cmap` must be a matplotlib Colormap, an array of colors, or a dict.')
 
     def scale_data(self, Scaler=None):
         if Scaler is None:
