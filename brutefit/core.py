@@ -472,14 +472,36 @@ class Brute():
 
         return BFs
 
-    def predict(self):
+    def handle_new_data(self, new_data, scaled=False):
+        if not scaled and self.scaled:
+            new_data = self.X_scaler.transform(new_data)
+        
+        if self.transformed:
+            raise NotImplemented('Cannot do this with transformed data yet...')
+        
+        return self.build_desmat(new_data)
+
+    def predict(self, new_data=None, scaled=True):
         """
         Calculate predicted y data from all polynomials.
+
+        Parameters
+        ----------
+        new_data : np.ndarray
+            New data used for prediction. If None, we use the
+            data provided for fitting.
         """
+        if new_data is not None:
+            desmat = self.handle_new_data(new_data=new_data, scaled=scaled)
+        else:
+            desmat = None
         # calculate all predictions
         if self.transformed:
+            if desmat is None:
+                desmat = self.trans_desmats
+
             self.pred_all = np.zeros((self.modelfits.shape[0], self.X.shape[0]))
-            for t, tdesmat in self.trans_desmats.items():
+            for t, tdesmat in desmat.items():
                 tind = np.all(self.modelfits.transformed == t, 1)
                 pred = np.nansum(tdesmat * self.modelfits.coefs.values[tind, np.newaxis, :], axis=2).astype(float)
                 if np.any(t):
@@ -487,9 +509,11 @@ class Brute():
                         pred = self.transform.inverse_transform(pred)
                 self.pred_all[tind] = pred
         else:
-            self.pred_all = np.nansum(self.desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
+            if desmat is None:
+                desmat = self.desmat
+            self.pred_all = np.nansum(desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
 
-        # get weights for recombination
+        # get weights for recombination     
         bf = self.modelfits.metrics.BF_max.values.reshape(-1, 1)
 
         # un-scale, if appropriate
