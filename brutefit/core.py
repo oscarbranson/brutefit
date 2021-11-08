@@ -446,8 +446,8 @@ class Brute():
                     tBFs = pd.DataFrame(index=range(n), 
                                         columns=pd.MultiIndex.from_tuples(columns + tcols))
                     tBFs.loc[:, [('metrics', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = tfits[:, 1:]
-                    tBFs.loc[:, 'coefs'] = tcoefs
-                    tBFs.loc[:, 'p_values'] = tpvalues
+                    tBFs['coefs'] = np.vstack(tcoefs)
+                    tBFs['p_values'] = np.vstack(tpvalues)
                     tBFs.loc[:, idx['transformed', self.xnames]] = atind
 
                     BF_list.append(tBFs)
