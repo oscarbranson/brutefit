@@ -12,6 +12,18 @@ def get_limits(ax):
 def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None, coefs=None, ax=None):
     """
     Plot a density distribution diagram for fitted models.
+
+    Parameters
+    ----------
+    xvals : array-like
+        The x axis for the density plots. If None, x values are calculated
+        to span the range of the coefficients +/- 5%
+    bw_method : str
+        The method to calculate the bin width of the kernel density estimator.
+        Passed to scipy.stats.gaussian_kde.
+    filter_zeros : float
+        Remove distributions that overlap with zero by more than this fraction.
+    
     """
     if ax is None:
         fig, ax = plt.subplots(1, 1)
@@ -85,7 +97,7 @@ def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None
     ax.set_xlabel('Covariate Influence')
     ax.set_ylabel('Probability Density')
 
-def observed_vs_predicted(brute, ax):
+def observed_vs_predicted(brute, ax, model_ind):
     """
     Plot observed vs. predicted data.
     """
@@ -107,7 +119,7 @@ def observed_vs_predicted(brute, ax):
     else:
         xerr = None
 
-    ax.errorbar(y, brute.pred_means, xerr=xerr, yerr=brute.pred_stds, marker='o', lw=0, elinewidth=1)
+    ax.errorbar(y.flat, brute.pred_means, xerr=xerr, yerr=brute.pred_stds, marker='o', markersize=3, lw=0, elinewidth=1)
 
     ax.set_xlabel('Measured')
     ax.set_ylabel('Predicted')
