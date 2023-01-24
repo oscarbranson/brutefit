@@ -353,6 +353,15 @@ class Brute():
             other model (M(i)): p(D|M(best)) / p(D|M(i)).
             - evidence : Guidlines for interpreting K, following Kass and Raftery (1995)
         """
+        self.fit_vs_transformed = fit_vs_transformed
+        self.evaluate_vs_transformed = evaluate_vs_transformed
+        
+        # set y to transformed or untransformed data
+        if fit_vs_transformed and self.transformed:
+            y = self.ty
+        else:
+            y = self.y
+        
         # calculate all parameter and interaction permutations
         self.permutations = self.calc_model_permutations()
         total = len(self.permutations)
@@ -361,7 +370,7 @@ class Brute():
         self.desmat = self.build_desmat(self.X)                
 
         # fit all non-transformed models
-        fits, coefs, pvalues = self._fit_polys(self.y, self.w, self.permutations, self.desmat, pbar_desc='Evaluating Models:')
+        fits, coefs, pvalues = self._fit_polys(y, self.w, self.permutations, self.desmat, pbar_desc='Evaluating Models:')
 
         # create output dataframe
         columns = ([('coefs', c) for c in self.coef_names] +
@@ -376,8 +385,6 @@ class Brute():
         BFs['p_values'] = np.array(pvalues)
 
         # if transformations are happening...
-        self.fit_vs_transformed = fit_vs_transformed
-        self.evaluate_vs_transformed = evaluate_vs_transformed
         if self.transformed:
             tcols = [('transformed', k) for k in self.xnames]
             for t in tcols:
@@ -385,11 +392,6 @@ class Brute():
             i = BFs.index.max() + 1
 
             BF_list = [BFs]
-
-            if fit_vs_transformed:
-                y = self.ty
-            else:
-                y = self.y
             
             if evaluate_vs_transformed:
                 transformer = None
@@ -447,14 +449,12 @@ class Brute():
         Calculate predicted y data from all polynomials.
         """
         # calculate all predictions
-        if self.transformed:
+        if self.fit_vs_transformed:
             self.pred_all = np.zeros((self.modelfits.shape[0], self.X.shape[0]))
             for t, tdesmat in self.trans_desmats.items():
                 tind = np.all(self.modelfits.transformed == t, 1)
                 pred = np.nansum(tdesmat * self.modelfits.coefs.values[tind, np.newaxis, :], axis=2).astype(float)
-                if np.any(t):
-                    if self.fit_vs_transformed:
-                        pred = self.transform.inverse_transform(pred)
+                pred = self.transform.inverse_transform(pred)
                 self.pred_all[tind] = pred
         else:
             self.pred_all = np.nansum(self.desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
