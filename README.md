@@ -1,4 +1,5 @@
 <div align="right">
+  <a href="https://badge.fury.io/py/brutefit"><img src="https://badge.fury.io/py/brutefit.svg" alt="PyPI version" height="18"></a>
   <a href="https://zenodo.org/badge/latestdoi/194186954"><img src="https://zenodo.org/badge/194186954.svg" alt="DOI" height="18"></a>
 </div>
 
@@ -16,6 +17,11 @@ BruteFit attempts to fit your data with all combinations and permutations of mul
 If you have a lot of independent variables, the number of permutations can obviously get out of hand pretty quickly, and this can jam up your computer pretty well for a good while. Beware.
 
 It uses multi-threading to speed things up, but the code is messy and hilariously inneficient... so... well... fix it yourself. Or implement something better.
+
+## Installation
+```
+pip install brutefit
+```
 
 ## How it actually works
 You give BruteFit:

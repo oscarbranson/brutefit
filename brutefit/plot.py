@@ -89,15 +89,15 @@ def parameter_distributions(brute, xvals=None, bw_method=None, filter_zeros=None
         else:
             pdf = []
         
-        ax.plot(xvals, pdf, label=brute.vardict[c], alpha=line_alpha, zorder=zorder)
-        ax.fill_between(xvals, pdf, alpha=face_alpha, zorder=zorder)
+        ax.plot(xvals, pdf, label=brute.vardict[c], color=brute.varcolors[c], alpha=line_alpha, zorder=zorder)
+        ax.fill_between(xvals, pdf, color=brute.varcolors[c], alpha=face_alpha, zorder=zorder)
     
     # ax.set_ylim(0, ax.get_ylim()[1])
     ax.axvline(0, ls='dashed', c=(0,0,0,0.3), zorder=-1)
     ax.set_xlabel('Covariate Influence')
     ax.set_ylabel('Probability Density')
 
-def observed_vs_predicted(brute, ax, model_ind):
+def observed_vs_predicted(brute, model_ind=None, ax=None, **kwargs):
     """
     Plot observed vs. predicted data.
     """
@@ -119,8 +119,17 @@ def observed_vs_predicted(brute, ax, model_ind):
     else:
         xerr = None
 
-    ax.errorbar(y.flat, brute.pred_means, xerr=xerr, yerr=brute.pred_stds, marker='o', markersize=3, lw=0, elinewidth=1)
+    if model_ind is None:
+        ax.scatter(y.flat, brute.pred_means, **kwargs)
+        ax.errorbar(y.flat, brute.pred_means, xerr=xerr, yerr=brute.pred_stds, lw=0, elinewidth=1)
+    else:
+        print(model_ind)
+        ax.scatter(y.flat, brute.pred_all[model_ind], **kwargs)
+        ax.errorbar(y.flat, brute.pred_all[model_ind], xerr=xerr, lw=0, elinewidth=1)
 
     ax.set_xlabel('Measured')
-    ax.set_ylabel('Predicted')
+    if model_ind is None:
+        ax.set_ylabel('Predicted (all models)')
+    else:
+        ax.set_ylabel(f'Predicted (model {model_ind:.0f})')
     ax.set_aspect(1)

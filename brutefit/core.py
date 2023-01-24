@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 from tqdm.notebook import tqdm
 import itertools as itt
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 from itertools import permutations, combinations_with_replacement, product
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 from sklearn.linear_model import LinearRegression
@@ -55,7 +57,7 @@ class Brute():
         models will be evaluated against the transformed data.
     """
     def __init__(self, X, y, w=None, poly_max=1, max_interaction_order=0, permute_interactions=True, 
-                 include_bias=True, model=None, n_processes=None, chunksize=None, 
+                 include_bias=True, model=None, n_processes=None, chunksize=None, cmap=None,
                  scale_data=True, Scaler=None, varnames=None, transform=None, fit_vs_transformed=True, evaluate_vs_transformed=False):
         self.X = np.asanyarray(X)
         self.y = np.asanyarray(y)
@@ -99,6 +101,7 @@ class Brute():
         self.n_interactions = len(self.interaction_pairs)
 
         self.make_covariate_names(varnames)
+        self.set_covariate_colors(cmap=cmap)
 
         self.scaled = False
         if scale_data and not self.scaled:
@@ -128,7 +131,7 @@ class Brute():
         
         self.varnames = varnames
         
-        if len(varnames) == self.ncov:
+        if len(self.varnames) == self.ncov:
             self.vardict = {'X{}'.format(k): v for k, v in enumerate(varnames)}
             real_names = self.coef_names.copy()
             for k, v in self.vardict.items():
@@ -136,11 +139,38 @@ class Brute():
                     real_names[i] = r.replace(k, v)
             for i, r in enumerate(real_names):
                 real_names[i] = r.replace('^1', ' ').strip()
-            self.vardict.update({k: v for k, v in zip(self.coef_names, real_names)})
+            self.vardict = {k: v for k, v in zip(self.coef_names, real_names)}
         else:
             raise ValueError('varnames must be the same length as the number of independent variables ({})'.format(self.ncov))
         if self.include_bias:
             self.vardict['C'] = 'C'
+    
+    def set_covariate_colors(self, cmap=None):
+        n_labels = len(self.varnames)
+        if not hasattr(self, 'varcolors'):
+            self.varcolors = {}
+
+        if cmap is None:
+            # if cmap is not given, set to default color cycler.
+            color_cycler = plt.rcParams['axes.prop_cycle']()
+            for k in self.vardict.keys():
+                self.varcolors[k] = next(color_cycler)['color']
+            if 'C' in self.varcolors:
+                self.varcolors['C'] = '#666666'
+        elif isinstance(cmap, mpl.colors.Colormap):
+            for k, i in zip(self.vardict.keys(), np.linspace(0, 1, n_labels)):
+                self.varcolors[k] = cmap(i)
+            if 'C' in self.varcolors:
+                self.varcolors['C'] = '#666666'
+        elif isinstance(cmap, dict):
+            i_vardict = {v: k for k, v in self.vardict.items()}
+            for var, c in cmap.items():
+                if var in self.vardict:
+                    self.varcolors[var] = c
+                elif var in i_vardict:
+                    self.varcolors[i_vardict[var]] = c
+        else:    
+            raise ValueError('`cmap` must be a matplotlib Colormap, an array of colors, or a dict.')
 
     def scale_data(self, Scaler=None):
         if Scaler is None:
@@ -418,8 +448,8 @@ class Brute():
                     tBFs = pd.DataFrame(index=range(n), 
                                         columns=pd.MultiIndex.from_tuples(columns + tcols))
                     tBFs.loc[:, [('metrics', 'n_covariates'), ('metrics', 'R2'), ('metrics', 'BF0')]] = tfits[:, 1:]
-                    tBFs.loc[:, 'coefs'] = tcoefs
-                    tBFs.loc[:, 'p_values'] = tpvalues
+                    tBFs['coefs'] = np.vstack(tcoefs)
+                    tBFs['p_values'] = np.vstack(tpvalues)
                     tBFs.loc[:, idx['transformed', self.xnames]] = atind
 
                     BF_list.append(tBFs)
@@ -444,22 +474,46 @@ class Brute():
 
         return BFs
 
-    def predict(self):
+    def handle_new_data(self, new_data, scaled=False):
+        if not scaled and self.scaled:
+            new_data = self.X_scaler.transform(new_data)
+        
+        if self.transformed:
+            raise NotImplemented('Cannot do this with transformed data yet...')
+        
+        return self.build_desmat(new_data)
+
+    def predict(self, new_data=None, scaled=True):
         """
         Calculate predicted y data from all polynomials.
+
+        Parameters
+        ----------
+        new_data : np.ndarray
+            New data used for prediction. If None, we use the
+            data provided for fitting.
         """
+        if new_data is not None:
+            desmat = self.handle_new_data(new_data=new_data, scaled=scaled)
+        else:
+            desmat = None
         # calculate all predictions
         if self.fit_vs_transformed:
+            if desmat is None:
+                desmat = self.trans_desmats
+
             self.pred_all = np.zeros((self.modelfits.shape[0], self.X.shape[0]))
-            for t, tdesmat in self.trans_desmats.items():
+            for t, tdesmat in desmat.items():
                 tind = np.all(self.modelfits.transformed == t, 1)
                 pred = np.nansum(tdesmat * self.modelfits.coefs.values[tind, np.newaxis, :], axis=2).astype(float)
                 pred = self.transform.inverse_transform(pred)
                 self.pred_all[tind] = pred
         else:
-            self.pred_all = np.nansum(self.desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
+            if desmat is None:
+                desmat = self.desmat
+            self.pred_all = np.nansum(desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
 
-        # get weights for recombination
+        # get weights for recombination     
         bf = self.modelfits.metrics.BF_max.values.reshape(-1, 1)
 
         # un-scale, if appropriate
@@ -476,8 +530,8 @@ class Brute():
     def plot_param_dists(self, xvals=None, bw_method=None, filter_zeros=None, coefs=None, ax=None):
         return plot.parameter_distributions(self, xvals=xvals, bw_method=bw_method, filter_zeros=filter_zeros, coefs=coefs, ax=ax)
 
-    def plot_obs_vs_pred(self, model_ind=None, ax=None):
-        return plot.observed_vs_predicted(self, model_ind=model_ind, ax=ax)
+    def plot_obs_vs_pred(self, model_ind=None, ax=None, **kwargs):
+        return plot.observed_vs_predicted(self, model_ind=model_ind, ax=ax, **kwargs)
 
     def calc_p_zero(self, bw_method=None):
         return calc_p_zero(self, bw_method)
