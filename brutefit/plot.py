@@ -133,3 +133,5 @@ def observed_vs_predicted(brute, model_ind=None, ax=None, **kwargs):
     else:
         ax.set_ylabel(f'Predicted (model {model_ind:.0f})')
     ax.set_aspect(1)
+    
+    return fig, ax
