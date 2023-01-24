@@ -498,7 +498,7 @@ class Brute():
         else:
             desmat = None
         # calculate all predictions
-        if self.fit_vs_transformed:
+        if self.transformed:
             if desmat is None:
                 desmat = self.trans_desmats
 
@@ -506,7 +506,8 @@ class Brute():
             for t, tdesmat in desmat.items():
                 tind = np.all(self.modelfits.transformed == t, 1)
                 pred = np.nansum(tdesmat * self.modelfits.coefs.values[tind, np.newaxis, :], axis=2).astype(float)
-                pred = self.transform.inverse_transform(pred)
+                if self.fit_vs_transformed:
+                    pred = self.transform.inverse_transform(pred)
                 self.pred_all[tind] = pred
         else:
             if desmat is None:
