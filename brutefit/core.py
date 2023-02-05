@@ -48,17 +48,14 @@ class Brute():
     Scaler : Scaler object
         A class of similar structure to sklearn.preprocessing.StandardScaler.
         An instance must have .fit(), .transform() and .inverse_transform() methods.
-    transform : Transformer object
+    transformer : Transformer object
         An object with .transform() and .inverse_transform() methods which will take an
         input array and return a transformed array of the same dimensions.
         If provided, this will be iteratively applied to model variables.
-    evaluate_vs_transformed : bool
-        If False, all models will be evaluated against the untransformed data. If True,
-        models will be evaluated against the transformed data.
     """
     def __init__(self, X, y, w=None, poly_max=1, max_interaction_order=0, permute_interactions=True, 
                  include_bias=True, model=None, n_processes=None, chunksize=None, cmap=None,
-                 scale_data=True, Scaler=None, varnames=None, transform=None, fit_vs_transformed=True, evaluate_vs_transformed=False):
+                 scale_data=True, Scaler=None, varnames=None, transformer=None):
         self.X = np.asanyarray(X)
         self.y = np.asanyarray(y)
         if w is None:
@@ -79,7 +76,7 @@ class Brute():
         if self.y.ndim == 1:
             self.y = self.y.reshape(-1, 1)
 
-        self.transform_data(transform=transform)
+        self.transform_data(transform=transformer)
 
         if self.model is None:
             self.model = LinearRegression(fit_intercept=False)
@@ -163,14 +160,14 @@ class Brute():
         else:    
             raise ValueError('`cmap` must be a matplotlib Colormap, an array of colors, or a dict.')
 
-    def transform_data(self, transform=None):
+    def transform_data(self, transformer=None):
         # perform transformations
-        self.transform = transform
-        if self.transform is not None:
-            if not (hasattr(self.transform, 'transform') and hasattr(self.transform, 'inverse_transform')):
-                raise ValueError("transform must have both '.transform()' and '.inverse_transform()' methods.")
-            self.tX = self.transform.transform(self.X)
-            self.ty = self.transform.transform(self.y)
+        self.transformer = transformer
+        if self.transformer is not None:
+            if not (hasattr(self.transformer, 'transform') and hasattr(self.transformer, 'inverse_transform')):
+                raise ValueError("the transformer must have both '.transform()' and '.inverse_transform()' methods.")
+            self.tX = self.transformer.transform(self.X)
+            self.ty = self.transformer.transform(self.y)
             self.transformed = True
         else:
             self.transformed = False
@@ -304,13 +301,16 @@ class Brute():
         return np.hstack(desmat)
 
     def build_trans_desmats(self, X=None):
+        """
+        Build a dictionary of design matrices for each transform permutation.
+        """
         
         if X is None:
             X = self.X
             tX = self.tX
         else:
             X = X
-            tX = self.transform.transform(X)
+            tX = self.transformer.transform(X)
         
         trans_desmats = {}
              
@@ -393,7 +393,17 @@ class Brute():
     def evaluate_polynomials(self, fit_vs_transformed=True, evaluate_vs_transformed=False):
         """
         Evaluate all polynomial combinations and permutations of X against y.
-            
+        
+        Parameters
+        ----------
+        fit_vs_transformed : bool, optional, default True
+            If True, and a transform is provided, fit the model to 
+            transformed y data.
+        evaluate_vs_transformed : bool, optional, default False
+            If True, goodness of fit statistics will be calculated using 
+            transformed y data. By default, fit statistics are calculated 
+            using the untransformed y data.
+        
         Returns
         -------
         pd.DataFrame : A set of metrics comparing all possible polynomial models.
@@ -455,7 +465,7 @@ class Brute():
             if evaluate_vs_transformed:
                 transformer = None
             else:
-                transformer = self.transform
+                transformer = self.transformer
             
             self.trans_desmats = self.build_trans_desmats(self.X)
 
@@ -505,8 +515,8 @@ class Brute():
 
         return BFs
 
-    def handle_new_data(self, new_data, scaled=False):
-        if not scaled and self.scaled:
+    def handle_new_data(self, new_data):
+        if self.scaled:
             new_data = self.X_scaler.transform(new_data)
         
         if self.transformed:
@@ -514,7 +524,7 @@ class Brute():
         
         return self.build_desmat(new_data)
 
-    def predict(self, new_data=None, scaled=False):
+    def predict(self, new_data=None):
         """
         Calculate predicted y data from all polynomials.
 
@@ -522,7 +532,9 @@ class Brute():
         ----------
         new_data : np.ndarray
             New data used for prediction. If None, we use the
-            data provided for fitting.
+            data provided for fitting. The data should not have
+            any transformations applied to it - i.e. in the same
+            units as the X data originally provided to brute.
         """
         if self.transformed:
             if new_data is None:
@@ -530,14 +542,14 @@ class Brute():
                 self.pred_desmat = self.trans_desmats
             else:
                 self.pred_X = new_data
-                self.pred_desmat = self.handle_new_data(new_data=new_data, scaled=scaled)
+                self.pred_desmat = self.handle_new_data(new_data=new_data)
                 
             self.pred_all = np.zeros((self.modelfits.shape[0], self.pred_X.shape[0]))
             for t, tdesmat in self.pred_desmat.items():
                 tind = np.all(self.modelfits.transformed == t, 1)
                 pred = np.nansum(tdesmat * self.modelfits.coefs.values[tind, np.newaxis, :], axis=2).astype(float)
                 if self.fit_vs_transformed:
-                    pred = self.transform.inverse_transform(pred)
+                    pred = self.transformer.inverse_transform(pred)
                 self.pred_all[tind] = pred
 
         else:
@@ -546,7 +558,7 @@ class Brute():
                 self.pred_desmat = self.desmat
             else:
                 self.pred_X = new_data
-                self.pred_desmat = self.handle_new_data(new_data=new_data, scaled=scaled)
+                self.pred_desmat = self.handle_new_data(new_data=new_data)
             
             # calculate predictions
             self.pred_all = np.nansum(self.pred_desmat * self.modelfits.coefs.values[:, np.newaxis, :], axis=2).astype(float)
