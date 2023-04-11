@@ -76,7 +76,7 @@ class Brute():
         if self.y.ndim == 1:
             self.y = self.y.reshape(-1, 1)
 
-        self.transform_data(transform=transformer)
+        self.transform_data(transformer=transformer)
 
         if self.model is None:
             self.model = LinearRegression(fit_intercept=False)
